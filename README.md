@@ -1,17 +1,47 @@
 # omniscient
 
-Acompanhamento de carteira com cotações da [brapi](https://brapi.dev) e modelos de
-valuation (Graham, DCF e margem de segurança).
+Acompanhamento de carteira com autenticação [Clerk](https://clerk.com), cotações da
+[brapi](https://brapi.dev) e modelos de valuation (Graham, DCF e margem de segurança).
 
 ## Setup
 
 ```bash
 npm install
-cp .env.example .env   # preencha BRAPI_TOKEN
+cp .env.example .env   # preencha VITE_CLERK_PUBLISHABLE_KEY e BRAPI_TOKEN
 npm run dev
 ```
 
-Gere o token em <https://brapi.dev/dashboard>.
+- Chave do Clerk: <https://dashboard.clerk.com/~/api-keys> (a publicável, `pk_test_...`)
+- Token da brapi: <https://brapi.dev/dashboard>
+
+Sem a chave do Clerk a aplicação abre uma tela explicando o que configurar, em vez
+de renderizar em branco.
+
+## Autenticação
+
+O Clerk é a fonte de verdade dos usuários — a aplicação não guarda cadastro,
+senha nem sessão própria.
+
+- `ClerkAppProvider` liga o `ClerkProvider` ao React Router (`routerPush` /
+  `routerReplace`), então a navegação pós-login não faz reload.
+- `ProtectedRoute` protege todas as rotas do app; `/sign-in` e `/sign-up` são as
+  únicas públicas. A rota pedida é guardada e restaurada depois do login.
+- `useCurrentUser` devolve o usuário já convertido para a entidade de domínio
+  `User`, via `infra/auth/clerk-user.ts`. O SDK do Clerk fica confinado à infra e
+  à apresentação — o domínio não conhece o Clerk.
+- Nome, e-mail, senha e MFA são gerenciados pelos componentes do Clerk
+  (`<UserButton />` no header, `openUserProfile()` na página de perfil).
+
+A chave publicável usa prefixo `VITE_` porque é pública por definição. A
+`CLERK_SECRET_KEY` **não** é usada: esta é uma SPA sem backend, e a secret key só
+faria sentido em código de servidor.
+
+### Carteira por usuário
+
+As posições são namespaced pelo id do Clerk
+(`omniscient.positions.v1.<userId>`), então contas diferentes no mesmo navegador
+não veem a carteira uma da outra. Por isso `createPortfolioServices(userId)` é
+uma factory, e não um singleton de módulo.
 
 ## Cotações e o token da brapi
 
@@ -54,6 +84,7 @@ src/
   domain/         regras de negócio e portas (sem dependência de framework)
     asset/        Asset, AssetQuote, QuoteProvider (porta), AssetRepository
     portfolio/    Portfolio, PortfolioItem, Position, PositionRepository
+    user/         User (identidade gerenciada pelo Clerk)
     valuation/    Graham, DCF, margem de segurança
     errors/       DomainError e subclasses
   application/    casos de uso que orquestram domínio + portas
@@ -61,10 +92,12 @@ src/
   infra/          implementações concretas das portas
     http/         HttpClient, HttpError, NetworkError
     brapi/        BrapiQuoteProvider + tipos da resposta da API
-    repository/   persistência (localStorage, API própria)
+    auth/         adaptador Clerk -> entidade User
+    repository/   persistência (localStorage)
     config/       configuração pública do browser
   composition/    composition root — o único lugar que conhece a infra
   presentation/   React: rotas, componentes, hooks
+    components/auth/   ClerkAppProvider, ProtectedRoute
 ```
 
 A dependência aponta sempre para dentro: `presentation → application → domain`.
@@ -84,4 +117,5 @@ A infra implementa as portas do domínio e é ligada em `composition/container.t
 Não há dados fictícios na aplicação. As posições da carteira começam vazias e são
 cadastradas pelo usuário, persistidas em `localStorage`
 (`LocalStoragePositionRepository`). O valor justo é calculado somente para
-posições em que o usuário informou LPA e crescimento — nada é presumido.
+posições em que o usuário informou LPA e crescimento — nada é presumido. Os dados
+de perfil vêm do Clerk, não de um usuário fixo no código.
