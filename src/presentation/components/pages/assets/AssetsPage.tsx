@@ -4,6 +4,7 @@ import { ASSET_TYPE_LABELS, type AssetType, type Currency } from '../../../../do
 import { usePortfolio } from '../../../hooks/usePortfolio'
 import AnimatedNumber from '../../instrument/AnimatedNumber'
 import SafetyGauge from '../../instrument/SafetyGauge'
+import { buildSharedScale } from '../../instrument/scale'
 import AddPositionForm from './AddPositionForm'
 import PositionRow from './PositionRow'
 
@@ -60,6 +61,18 @@ export default function AssetsPage() {
   const hasPositions = rows.length > 0
   const showForm = formOpen || (!hasPositions && !loading)
 
+  // Uma régua para todas as linhas: os instrumentos ficam empilhados e só são
+  // comparáveis se compartilharem a escala. O datum também alinha na coluna.
+  const rowDomain = buildSharedScale(
+    rows.flatMap((row) => {
+      const cost = row.position.averagePrice
+      if (cost <= 0) return []
+      const deviations = [((row.quote?.price ?? cost) / cost - 1) * 100]
+      if (row.fairValue != null) deviations.push((row.fairValue / cost - 1) * 100)
+      return deviations
+    }),
+  )
+
   return (
     <motion.div
       className="page stack-xl"
@@ -106,6 +119,19 @@ export default function AssetsPage() {
               )}
             </span>
             <span className="verdict-label">sobre o custo da carteira</span>
+
+            {/* O instrumento mora na coluna do veredicto: preenche o vazio sob a
+                figura e ganha proporção de mostrador em vez de esticar 1000px. */}
+            <div className="verdict-instrument">
+              <SafetyGauge
+                costBasis={totalInvested}
+                marketValue={totalValue}
+                fairValue={portfolioFairValue}
+                size="hero"
+                label={`Carteira: mercado ${totalProfitPercent?.toFixed(2) ?? '—'}% sobre o custo`}
+              />
+            </div>
+
             <span className="verdict-note">
               {!hasPositions
                 ? 'O instrumento está calibrado e aguardando a primeira posição.'
@@ -146,39 +172,32 @@ export default function AssetsPage() {
               </span>
               <span className="tally-label">Resultado</span>
             </div>
+
+            {allocationEntries.length > 0 && (
+              <div className="allocation-strip">
+                <span className="eyebrow">Alocação</span>
+                <div className="allocation-bar">
+                  {allocationEntries.map(([type, pct]) => (
+                    <div
+                      key={type}
+                      className="allocation-segment"
+                      style={{ width: `${pct}%` }}
+                      title={`${ASSET_TYPE_LABELS[type]} ${pct.toFixed(1)}%`}
+                    />
+                  ))}
+                </div>
+                <div className="allocation-legend">
+                  {allocationEntries.map(([type, pct]) => (
+                    <span key={type} className="allocation-key">
+                      <i />
+                      {ASSET_TYPE_LABELS[type]} <b>{pct.toFixed(1)}%</b>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
-
-        <SafetyGauge
-          costBasis={totalInvested}
-          marketValue={totalValue}
-          fairValue={portfolioFairValue}
-          size="hero"
-          label={`Carteira: mercado ${totalProfitPercent?.toFixed(2) ?? '—'}% sobre o custo`}
-        />
-
-        {allocationEntries.length > 0 && (
-          <div className="allocation-strip">
-            <div className="allocation-bar">
-              {allocationEntries.map(([type, pct]) => (
-                <div
-                  key={type}
-                  className="allocation-segment"
-                  style={{ width: `${pct}%` }}
-                  title={`${ASSET_TYPE_LABELS[type]} ${pct.toFixed(1)}%`}
-                />
-              ))}
-            </div>
-            <div className="allocation-legend">
-              {allocationEntries.map(([type, pct]) => (
-                <span key={type} className="allocation-key">
-                  <i />
-                  {ASSET_TYPE_LABELS[type]} <b>{pct.toFixed(1)}%</b>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
       </motion.section>
 
       {/* ── Posições ────────────────────────────────────────────────────── */}
@@ -233,6 +252,7 @@ export default function AssetsPage() {
                 key={row.position.id}
                 row={row}
                 money={money}
+                domain={rowDomain}
                 onRemove={(id) => void removePosition(id)}
               />
             ))

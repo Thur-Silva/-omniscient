@@ -3,11 +3,14 @@ import { useId, useState } from 'react'
 import type { PositionView } from '../../../../application/portfolio/load-portfolio'
 import { ASSET_TYPE_LABELS, type Currency } from '../../../../domain/asset/type'
 import SafetyGauge from '../../instrument/SafetyGauge'
+import type { Scale } from '../../instrument/scale'
 
 interface PositionRowProps {
   row: PositionView
   money: (value: number | null | undefined, currency?: Currency) => string
   onRemove: (id: string) => void
+  /** Régua compartilhada por todas as linhas, para os instrumentos comparáveis. */
+  domain?: Scale
 }
 
 function signClass(value: number | null | undefined): string {
@@ -20,7 +23,13 @@ function signedPercent(value: number | null | undefined): string {
   return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
 }
 
-export default function PositionRow({ row, money, onRemove }: PositionRowProps) {
+/** `acquiredAt` é ISO (yyyy-mm-dd); exibir cru soaria a dado de banco. */
+function formatDate(iso: string): string {
+  const parsed = new Date(`${iso}T00:00:00`)
+  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleDateString('pt-BR')
+}
+
+export default function PositionRow({ row, money, onRemove, domain }: PositionRowProps) {
   const [open, setOpen] = useState(false)
   const reduce = useReducedMotion()
   const detailId = useId()
@@ -52,6 +61,7 @@ export default function PositionRow({ row, money, onRemove }: PositionRowProps) 
             marketValue={quote?.price ?? null}
             fairValue={fairValue}
             size="row"
+            domain={domain}
             label={`${position.ticker}: mercado ${signedPercent(profitPercent)} sobre o custo`}
           />
         </span>
@@ -136,7 +146,7 @@ export default function PositionRow({ row, money, onRemove }: PositionRowProps) 
               </div>
               <div className="detail-cell">
                 <dt>Compra</dt>
-                <dd>{position.acquiredAt}</dd>
+                <dd>{formatDate(position.acquiredAt)}</dd>
               </div>
               <div className="detail-cell position-actions">
                 <button

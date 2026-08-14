@@ -15,7 +15,7 @@ export default function Sidebar() {
         </span>
         <div>
           <strong>Omniscient</strong>
-          <small>Instrumento de valuation</small>
+          <small>Preço · valor</small>
         </div>
       </div>
 

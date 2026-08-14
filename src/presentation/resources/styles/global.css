@@ -82,20 +82,6 @@ body {
   border-radius: 2px;
 }
 
-/* Papel milimetrado quase imperceptível: dá superfície à tinta sem virar textura */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image: linear-gradient(var(--rule) 1px, transparent 1px),
-    linear-gradient(90deg, var(--rule) 1px, transparent 1px);
-  background-size: 96px 96px;
-  opacity: 0.28;
-  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 20%, transparent 75%);
-}
-
 /* ── Primitivas de tipografia ───────────────────────────────────────────── */
 
 .eyebrow {
@@ -205,11 +191,10 @@ body::before {
 
 .sidebar-brand small {
   display: block;
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--graphite-dim);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.01em;
 }
 
 .sidebar-nav {
@@ -374,9 +359,8 @@ body::before {
 .instrument-readout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 40px;
-  margin-bottom: 34px;
+  align-items: start;
+  gap: 56px;
 }
 
 .verdict {
@@ -384,6 +368,11 @@ body::before {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+}
+
+.verdict-instrument {
+  margin: 26px 0 18px;
+  max-width: 620px;
 }
 
 .verdict-figure {
@@ -450,46 +439,99 @@ body::before {
   width: 100%;
 }
 
-.gauge-scale {
+/* ── Linha de cota: notação de desenho técnico para medir um vão ─────────── */
+
+.gauge-dimension {
   position: relative;
-  height: 34px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brass);
 }
 
-.gauge.is-row .gauge-scale {
-  height: 20px;
+.gauge-dimension.is-negative {
+  color: var(--vermilion);
+}
+
+/* A cota: linha horizontal com testeiras verticais nas extremidades */
+.gauge-dimension-rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+.gauge-dimension-rule::before,
+.gauge-dimension-rule::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  width: 1px;
+  height: 7px;
+  background: currentColor;
+}
+
+.gauge-dimension-rule::before {
+  left: 0;
+}
+
+.gauge-dimension-rule::after {
+  right: 0;
+}
+
+.gauge-dimension-value {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 5px;
+  padding: 0 7px;
+  background: var(--ink-raised);
+  font-family: var(--font-price);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ── Corpo do instrumento ───────────────────────────────────────────────── */
+
+.gauge-body {
+  position: relative;
+  height: 28px;
+}
+
+.gauge.is-row .gauge-body {
+  height: 15px;
 }
 
 .gauge.is-idle {
-  height: 34px;
+  height: 28px;
   border-bottom: 1px dashed var(--rule-bright);
-  opacity: 0.4;
+  opacity: 0.35;
 }
 
 .gauge.is-row.is-idle {
-  height: 20px;
+  height: 15px;
 }
 
-/* Trilho: o corpo do mostrador, com micro-hachura interna */
 .gauge-rail {
   position: absolute;
   left: 0;
   right: 0;
-  top: 13px;
-  height: 8px;
-  border: 1px solid var(--rule-bright);
+  top: 8px;
+  height: 13px;
+  border: 1px solid var(--graphite);
   border-radius: 2px;
-  background-color: var(--ink-sunken);
-  background-image: repeating-linear-gradient(
-    90deg,
-    var(--rule) 0 1px,
-    transparent 1px 9px
-  );
+  background: var(--ink-sunken);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }
 
 .gauge.is-row .gauge-rail {
-  top: 7px;
-  height: 6px;
+  top: 4px;
+  height: 8px;
 }
 
 .gauge-band {
@@ -499,112 +541,65 @@ body::before {
 }
 
 .gauge-band.is-up {
-  background: linear-gradient(180deg, var(--jade), color-mix(in srgb, var(--jade) 62%, #000));
+  background: linear-gradient(180deg, var(--jade), color-mix(in srgb, var(--jade) 58%, #000));
 }
 
 .gauge-band.is-down {
-  background: linear-gradient(180deg, var(--vermilion), color-mix(in srgb, var(--vermilion) 62%, #000));
+  background: linear-gradient(180deg, var(--vermilion), color-mix(in srgb, var(--vermilion) 58%, #000));
 }
 
-/* A margem de segurança: hachura diagonal de latão, leitura de "folga" */
-.gauge-clearance {
+/* Datum: o zero gravado no trilho */
+.gauge-datum {
   position: absolute;
   top: 0;
   bottom: 0;
-  background-image: repeating-linear-gradient(
-    -45deg,
-    var(--brass) 0 1px,
-    transparent 1px 5px
-  );
-  opacity: 0.85;
-}
-
-.gauge-clearance.is-negative {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    var(--vermilion) 0 1px,
-    transparent 1px 5px
-  );
-}
-
-/* Régua */
-.gauge-tick {
-  position: absolute;
-  top: 3px;
   width: 1px;
-  height: 7px;
-  background: var(--rule-bright);
   translate: -0.5px 0;
-}
-
-.gauge.is-row .gauge-tick {
-  display: none;
-}
-
-.gauge-tick.is-datum {
-  top: 0;
-  height: 24px;
   background: var(--brass);
-  opacity: 0.75;
+  opacity: 0.9;
 }
 
-.gauge.is-row .gauge-tick.is-datum {
-  display: block;
-  top: 1px;
-  height: 18px;
-  opacity: 0.55;
-}
-
-/* Alvo: caret de latão apontando para o valor justo */
+/* Alvo: caret de latão sob o trilho */
 .gauge-target {
   position: absolute;
-  top: 0;
-  width: 7px;
+  bottom: 0;
+  width: 11px;
   height: 6px;
   translate: -50% 0;
   background: var(--brass-bright);
-  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  clip-path: polygon(50% 0, 0 100%, 100% 100%);
 }
 
 .gauge.is-row .gauge-target {
-  top: 0;
-  width: 5px;
+  width: 7px;
   height: 4px;
 }
 
-/* Ponteiro: haste fina com base pesada, como agulha de medidor */
+/* Ponteiro: cabeça em cunha sobre o trilho e haste atravessando */
 .gauge-needle {
   position: absolute;
-  top: 7px;
-  height: 20px;
+  top: 0;
+  bottom: 0;
   width: 1px;
   translate: -0.5px 0;
   background: var(--paper);
-  box-shadow: 0 0 7px rgba(237, 232, 223, 0.5);
-}
-
-.gauge.is-row .gauge-needle {
-  top: 3px;
-  height: 14px;
 }
 
 .gauge-needle::after {
   content: '';
   position: absolute;
   left: 50%;
-  bottom: -3px;
-  width: 7px;
+  top: 0;
+  width: 11px;
   height: 7px;
   translate: -50% 0;
-  rotate: 45deg;
   background: var(--paper);
-  border-radius: 1px;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
 
 .gauge.is-row .gauge-needle::after {
-  width: 5px;
+  width: 7px;
   height: 5px;
-  bottom: -2px;
 }
 
 .gauge-needle.is-up::after {
@@ -615,11 +610,36 @@ body::before {
   background: var(--vermilion);
 }
 
-/* Rótulos da régua */
+/* ── Régua ──────────────────────────────────────────────────────────────── */
+
+.gauge-ruler {
+  position: relative;
+  height: 9px;
+  margin-top: 3px;
+}
+
+.gauge-tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 3px;
+  background: var(--graphite-dim);
+  translate: -0.5px 0;
+}
+
+.gauge-tick.is-major {
+  height: 7px;
+  background: var(--graphite);
+}
+
+.gauge-tick.is-datum {
+  background: var(--brass);
+}
+
 .gauge-labels {
   position: relative;
-  height: 14px;
-  margin-top: 2px;
+  height: 13px;
+  margin-top: 3px;
 }
 
 .gauge-label {
@@ -633,63 +653,36 @@ body::before {
 
 .gauge-label.is-datum {
   color: var(--brass);
-  font-size: 10px;
   letter-spacing: 0.06em;
-}
-
-.gauge-key {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 26px;
-  margin-top: 18px;
-}
-
-.gauge-key-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--graphite);
-}
-
-.gauge-key-item i {
-  width: 9px;
-  height: 3px;
-  border-radius: 1px;
-  flex-shrink: 0;
-}
-
-.gauge-key-item i.is-up {
-  background: var(--jade);
-}
-
-.gauge-key-item i.is-down {
-  background: var(--vermilion);
-}
-
-.gauge-key-item i.is-target {
-  background-image: repeating-linear-gradient(-45deg, var(--brass) 0 1px, transparent 1px 4px);
-  background-color: var(--brass-soft);
-  height: 6px;
 }
 
 /* ── Alocação: uma barra segmentada, não quatro barras empilhadas ───────── */
 
+/* Vive na coluna direita, sob os totais: preenche o vazio que sobrava ali e
+   evita virar gêmea do trilho do instrumento se ocupasse a largura toda. */
 .allocation-strip {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding-top: 26px;
-  margin-top: 26px;
+  align-items: flex-end;
+  gap: 10px;
+  padding-top: 20px;
+  margin-top: 22px;
   border-top: 1px solid var(--rule);
 }
 
 .allocation-bar {
   display: flex;
-  height: 6px;
+  width: 148px;
+  flex-shrink: 0;
+  height: 5px;
   gap: 2px;
   border-radius: 99px;
   overflow: hidden;
+}
+
+.allocation-legend {
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 
 .allocation-segment {
@@ -878,7 +871,7 @@ body::before {
 
 .position-detail-inner {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(152px, 1fr));
   gap: 22px 28px;
   padding: 4px 22px 26px;
   border-top: 1px solid var(--rule);
@@ -887,14 +880,16 @@ body::before {
 
 .detail-cell {
   display: grid;
+  grid-template-rows: auto 1fr;
   gap: 5px;
 }
 
 .detail-cell dt {
   font-size: 10px;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--graphite-dim);
+  white-space: nowrap;
 }
 
 .detail-cell dd {
@@ -909,6 +904,15 @@ body::before {
   font-family: var(--font-value);
   font-size: 17px;
   font-variation-settings: 'wght' 450;
+}
+
+/* Precisam vencer `.detail-cell dd` (0,2,0), senão o resultado sai branco. */
+.detail-cell dd.positive {
+  color: var(--jade);
+}
+
+.detail-cell dd.negative {
+  color: var(--vermilion);
 }
 
 .position-actions {
@@ -1040,9 +1044,12 @@ body::before {
   background: var(--ink);
 }
 
-.field-hint {
+/* Precisa vencer `.field > span` (0,1,1) na especificidade, senão a dica herda
+   caixa alta e espaçamento de rótulo. */
+.field > span.field-hint {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 10.5px;
+  line-height: 1.45;
   color: var(--graphite-dim);
   letter-spacing: 0;
   text-transform: none;

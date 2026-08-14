@@ -1,4 +1,5 @@
 import { motion, useReducedMotion } from 'motion/react'
+import { buildScale, ratio, type Scale } from './scale'
 
 export interface SafetyGaugeProps {
   /** Datum da escala: o que a posição custou. */
@@ -8,39 +9,14 @@ export interface SafetyGaugeProps {
   /** Onde o modelo diz que deveria estar. Ausente quando não há fundamentos. */
   fairValue?: number | null
   size?: 'hero' | 'row'
+  /**
+   * Escala imposta de fora. Numa lista de posições os instrumentos ficam lado a
+   * lado e convidam à comparação, então todos precisam da mesma régua — com
+   * escala própria uma queda de 8% desenharia a mesma barra que uma alta de 17%.
+   */
+  domain?: Scale
   /** Rótulo acessível — o gauge é uma imagem de dados. */
   label?: string
-}
-
-interface Scale {
-  lo: number
-  hi: number
-  step: number
-}
-
-/** Passos "redondos" para a régua não cair em 7,3% ou 13,6%. */
-function niceStep(rough: number): number {
-  const candidates = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500]
-  return candidates.find((c) => c >= rough) ?? 1000
-}
-
-function buildScale(marks: number[]): Scale {
-  const points = [0, ...marks]
-  const min = Math.min(...points)
-  const max = Math.max(...points)
-  const span = Math.max(max - min, 10)
-  const step = niceStep(span / 3)
-  return {
-    lo: Math.floor((min - span * 0.18) / step) * step,
-    hi: Math.ceil((max + span * 0.18) / step) * step,
-    step,
-  }
-}
-
-function ratio(value: number, scale: Scale): number {
-  const span = scale.hi - scale.lo
-  if (span <= 0) return 50
-  return Math.min(100, Math.max(0, ((value - scale.lo) / span) * 100))
 }
 
 function formatSigned(value: number, digits = 1): string {
@@ -61,6 +37,7 @@ export default function SafetyGauge({
   marketValue,
   fairValue,
   size = 'hero',
+  domain,
   label,
 }: SafetyGaugeProps) {
   const reduce = useReducedMotion()
@@ -72,7 +49,7 @@ export default function SafetyGauge({
 
   const marketPct = (marketValue / costBasis - 1) * 100
   const fairPct = fairValue != null && fairValue > 0 ? (fairValue / costBasis - 1) * 100 : null
-  const scale = buildScale(fairPct == null ? [marketPct] : [marketPct, fairPct])
+  const scale = domain ?? buildScale(fairPct == null ? [marketPct] : [marketPct, fairPct])
 
   const datumAt = ratio(0, scale)
   const marketAt = ratio(marketPct, scale)
