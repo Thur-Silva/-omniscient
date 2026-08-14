@@ -17,6 +17,16 @@ const NAV_ITEMS: { to: string; label: string; icon: ReactNode }[] = [
     ),
   },
   {
+    to: '/fiis',
+    label: 'FIIs',
+    icon: (
+      <>
+        <path d="M3 17h14" />
+        <path d="M5 17V9M10 17V5M15 17v-6" />
+      </>
+    ),
+  },
+  {
     to: '/triagem',
     label: 'Triagem',
     icon: (

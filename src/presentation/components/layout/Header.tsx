@@ -5,6 +5,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser'
 /** Nome da seção atual. O título grande de cada página é outro: este é contexto. */
 const SECTION_TITLES: Record<string, string> = {
   '/': 'Visão geral da carteira',
+  '/fiis': 'FIIs',
   '/triagem': 'Triagem',
   '/profile': 'Perfil',
   '/settings': 'Ajustes',

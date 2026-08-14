@@ -1,5 +1,7 @@
+import { FindFiiOpportunities } from '../application/fii/find-opportunities'
 import { LoadPortfolio } from '../application/portfolio/load-portfolio'
 import { ScreenWatchlist } from '../application/screener/screen-watchlist'
+import { StatusInvestFiiProvider } from '../infra/statusinvest/fii-provider'
 import type { QuoteProvider } from '../domain/asset/quote-provider'
 import type { AssetUniverseProvider } from '../domain/asset/universe'
 import type { PositionRepository } from '../domain/portfolio/repository'
@@ -30,6 +32,17 @@ const universeHttp = new HttpClient({
 
 export const quoteProvider: QuoteProvider = new BrapiQuoteProvider(brapiHttp)
 export const universeProvider: AssetUniverseProvider = new BrapiUniverseProvider(universeHttp)
+
+// Fundamentos de FII vêm de outra fonte porque a brapi não os fornece neste
+// plano. O universo inteiro chega numa requisição, daí o timeout maior.
+const fundamentalsHttp = new HttpClient({
+  baseUrl: appConfig.fundamentalsBaseUrl,
+  timeoutMs: 30_000,
+})
+
+export const findFiiOpportunities = new FindFiiOpportunities(
+  new StatusInvestFiiProvider(fundamentalsHttp),
+)
 
 export interface UserServices {
   positionRepository: PositionRepository

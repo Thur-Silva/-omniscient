@@ -105,6 +105,66 @@ src/
 A dependência aponta sempre para dentro: `presentation → application → domain`.
 A infra implementa as portas do domínio e é ligada em `composition/container.ts`.
 
+## Oportunidades em FIIs (`/fiis`)
+
+Ranking automático do mercado inteiro — sem cadastrar nada. Abre já apurado.
+
+**Elegibilidade** (precisa passar nos três):
+
+| Critério | Regra | Por quê |
+| --- | --- | --- |
+| Liquidez média diária | ≥ R$ 2 milhões | Abaixo disso não se entra nem se sai da posição |
+| DY (12 meses) | ≤ 16% a.a. | Teto de armadilha: acima disso a distribuição costuma ser insustentável |
+| P/VP | entre 0,80 e 1,05 | Acima paga prêmio sobre o patrimônio; abaixo, desconto exagerado esconde problema |
+
+**Ranking** — soma de duas colocações independentes:
+
+1. Ordena por **DY decrescente**. 1º lugar = 1 ponto, 2º = 2 pontos, e assim por diante.
+2. Ordena por **P/VP crescente** (mais barato sobre o patrimônio é melhor). Mesma pontuação.
+3. Soma as duas colocações de cada fundo e ordena **crescente**: **menor soma é o melhor**.
+
+Somar colocações em vez de olhar um índice só evita que um DY alto isolado, ou um
+P/VP baixo isolado, carregue o fundo ao topo sozinho. Empate na soma vai para a
+melhor colocação de DY, o critério primário.
+
+Exemplo real (14/08/2026, 603 fundos → 37 aprovados):
+
+```
+#   ticker    DY%    P/VP   rDY rPVP SOMA  liq/dia
+1   TRXF11   14,98  0,823    2    2    4   R$ 24,1M
+2   MCRE11   15,33  0,848    1    7    8   R$  3,2M
+3   RZTR11   14,32  0,844    6    5   11   R$  2,8M
+```
+
+MCRE11 lidera o DY mas cai para 2º na soma, porque o P/VP dele é o 7º melhor.
+Exatamente o efeito pretendido.
+
+A tela mostra os critérios e a contagem de descartados por motivo, para o ranking
+não ser caixa preta.
+
+### Fonte dos fundamentos
+
+A brapi **não fornece DY nem P/VP** em nenhum plano gratuito: `sortBy` aceita só
+`name|close|change|change_abs|volume|market_cap_basic`, `dividends=true` não
+acrescenta campo, e os `modules` são ignorados em silêncio.
+
+DY, P/VP, VP por cota e liquidez média diária vêm da **busca avançada do
+StatusInvest**, que devolve os ~600 FIIs numa única requisição.
+
+> **Atenção:** não é API pública documentada — é o endpoint interno que o site
+> deles consome. É gratuito e sem chave, mas pode mudar ou sair do ar sem aviso, e
+> o uso automatizado pode contrariar os termos de uso do serviço. A dependência
+> está isolada atrás da porta `FiiFundamentalsProvider` (`domain/fii`), então
+> trocar de fonte é uma classe nova, sem tocar no ranking.
+>
+> Alternativa testada: Yahoo Finance (`quoteSummary` com cookie + crumb) entrega
+> `dividendYield` e `priceToBook` para tickers `.SA`, mas exige **uma requisição
+> por ativo** (~600) e também não é oficial.
+
+O proxy `/api/fundamentos` (em `vite.config.ts`) injeta `User-Agent` e `Referer`
+no servidor — sem ele a chamada é barrada por CORS. **Em produção precisa do proxy
+equivalente**, igual ao caso da brapi.
+
 ## Triagem: barato ou caro
 
 Aba `/triagem`, com duas partes:
