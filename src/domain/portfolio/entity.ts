@@ -1,4 +1,5 @@
 import type { Asset } from '../asset/entity'
+import type { AssetType } from '../asset/type'
 
 export interface PortfolioItemProps {
   asset: Asset
@@ -64,7 +65,13 @@ export class Portfolio {
   addItem(item: PortfolioItem): void {
     const existing = this.items.find((i) => i.asset.id === item.asset.id)
     if (existing) {
-      existing.quantity += item.quantity
+      // Aporte no mesmo ativo: o preço médio precisa ser reponderado pela
+      // quantidade, senão o custo da posição fica errado.
+      const totalQuantity = existing.quantity + item.quantity
+      if (totalQuantity > 0) {
+        existing.averagePrice = (existing.invested + item.invested) / totalQuantity
+      }
+      existing.quantity = totalQuantity
       return
     }
     this.items.push(item)
@@ -83,9 +90,14 @@ export class Portfolio {
   }
 
   get totalCurrentValue(): number | null {
-    const values = this.items.map((i) => i.currentValue)
-    if (values.some((v) => v == null)) return null
-    return values.reduce<number>((sum, v) => sum + (v as number), 0)
+    if (this.items.length === 0) return null
+    let total = 0
+    for (const item of this.items) {
+      const value = item.currentValue
+      if (value == null) return null
+      total += value
+    }
+    return total
   }
 
   get totalProfit(): number | null {
@@ -98,13 +110,21 @@ export class Portfolio {
     return profit == null ? null : this.totalInvested === 0 ? 0 : (profit / this.totalInvested) * 100
   }
 
-  allocationByType(): Record<string, number> {
+  allocationByType(): Partial<Record<AssetType, number>> {
     const total = this.totalInvested
     if (total === 0) return {}
-    const allocation: Record<string, number> = {}
+
+    // Soma o valor absoluto por tipo primeiro; converter para percentual dentro
+    // do laço somava percentual com valor absoluto no segundo item de um tipo.
+    const invested: Partial<Record<AssetType, number>> = {}
     for (const item of this.items) {
       const type = item.asset.type
-      allocation[type] = ((allocation[type] ?? 0) + item.invested) / total * 100
+      invested[type] = (invested[type] ?? 0) + item.invested
+    }
+
+    const allocation: Partial<Record<AssetType, number>> = {}
+    for (const [type, value] of Object.entries(invested) as [AssetType, number][]) {
+      allocation[type] = (value / total) * 100
     }
     return allocation
   }

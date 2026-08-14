@@ -1,3 +1,4 @@
+import { InvalidQuoteError } from '../errors/asset-error'
 import type { AssetSnapshot, AssetType, Currency } from './type'
 
 export interface AssetProps {
@@ -43,8 +44,13 @@ export class Asset {
   }
 
   updateQuote(snapshot: AssetSnapshot): void {
-    if (snapshot.price <= 0) {
-      throw new Error(`Preço inválido para ${this.ticker}: ${snapshot.price}`)
+    if (!Number.isFinite(snapshot.price) || snapshot.price <= 0) {
+      throw new InvalidQuoteError(`Preço inválido para ${this.ticker}: ${snapshot.price}`)
+    }
+    if (snapshot.currency !== this.currency) {
+      throw new InvalidQuoteError(
+        `Moeda da cotação (${snapshot.currency}) difere da moeda de ${this.ticker} (${this.currency})`,
+      )
     }
     this.snapshot = snapshot
   }
