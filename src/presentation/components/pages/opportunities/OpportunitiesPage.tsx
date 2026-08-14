@@ -1,7 +1,20 @@
 import { motion, useReducedMotion } from 'motion/react'
+import { useMemo, useState } from 'react'
+import {
+  FII_CATEGORIES,
+  FII_CATEGORY_LABELS,
+  type FiiCategory,
+} from '../../../../domain/fii/fundamentals'
 import { CRITERIA, type RejectionReason } from '../../../../domain/fii/ranking'
 import { useFiiOpportunities } from '../../../hooks/useFiiOpportunities'
 import OpportunityRow from './OpportunityRow'
+
+type SortKey = 'colocacao' | 'liquidez'
+
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: 'colocacao', label: 'Colocação' },
+  { key: 'liquidez', label: 'Maior liquidez' },
+]
 
 const REASON_LABELS: Record<RejectionReason, string> = {
   'liquidez-baixa': 'liquidez abaixo de R$ 2M/dia',
@@ -16,8 +29,49 @@ const integer = new Intl.NumberFormat('pt-BR')
 export default function OpportunitiesPage() {
   const { report, loading, error, refresh } = useFiiOpportunities()
   const reduce = useReducedMotion()
+  const [categories, setCategories] = useState<Set<FiiCategory>>(new Set())
+  const [sort, setSort] = useState<SortKey>('colocacao')
 
-  const ranked = report?.ranked ?? []
+  // Estável entre renders: com `report?.ranked ?? []` solto, o array vazio seria
+  // novo a cada render e os useMemo abaixo recalculariam sempre.
+  const ranked = useMemo(() => report?.ranked ?? [], [report])
+
+  const countByCategory = useMemo(() => {
+    const counts = new Map<FiiCategory, number>()
+    for (const entry of ranked) {
+      counts.set(entry.fundamentals.category, (counts.get(entry.fundamentals.category) ?? 0) + 1)
+    }
+    return counts
+  }, [ranked])
+
+  /**
+   * Filtro e ordenação acontecem depois do ranking, nunca dentro dele: a
+   * colocação exibida continua sendo a do ranking geral, então dá para ver que um
+   * fundo de tijolo é o 7º no todo mesmo olhando só tijolo.
+   */
+  const visible = useMemo(() => {
+    const filtered =
+      categories.size === 0
+        ? ranked
+        : ranked.filter((entry) => categories.has(entry.fundamentals.category))
+
+    if (sort === 'liquidez') {
+      return [...filtered].sort(
+        (a, b) =>
+          (b.fundamentals.averageDailyLiquidity ?? 0) - (a.fundamentals.averageDailyLiquidity ?? 0),
+      )
+    }
+    return filtered
+  }, [ranked, categories, sort])
+
+  function toggleCategory(category: FiiCategory) {
+    setCategories((current) => {
+      const next = new Set(current)
+      if (next.has(category)) next.delete(category)
+      else next.add(category)
+      return next
+    })
+  }
 
   return (
     <div className="page stack-lg">
@@ -68,24 +122,89 @@ export default function OpportunitiesPage() {
         </div>
       ) : (
         <>
-          <div className="rank-head">
-            <span className="eyebrow">
-              {ranked.length} {ranked.length === 1 ? 'fundo aprovado' : 'fundos aprovados'} de{' '}
-              {integer.format(report?.universeSize ?? 0)}
-            </span>
-            <span className="rank-legend">soma = colocação DY + colocação P/VP · menor é melhor</span>
+          {/* Organizam a lista já ranqueada; não mexem na elegibilidade nem na soma. */}
+          <div className="filters">
+            <div className="filter-group">
+              <span className="filter-label">Categoria</span>
+              <div className="chips" role="group" aria-label="Filtrar por categoria">
+                {FII_CATEGORIES.map((category) => {
+                  const count = countByCategory.get(category) ?? 0
+                  const active = categories.has(category)
+                  return (
+                    <button
+                      key={category}
+                      type="button"
+                      aria-pressed={active}
+                      disabled={count === 0}
+                      className={`chip${active ? ' is-active' : ''}`}
+                      onClick={() => toggleCategory(category)}
+                    >
+                      {FII_CATEGORY_LABELS[category]}
+                      <b>{count}</b>
+                    </button>
+                  )
+                })}
+                {categories.size > 0 && (
+                  <button
+                    type="button"
+                    className="chip chip-clear"
+                    onClick={() => setCategories(new Set())}
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="filter-group">
+              <span className="filter-label">Ordenar por</span>
+              <div className="chips" role="group" aria-label="Ordenação">
+                {SORTS.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    aria-pressed={sort === option.key}
+                    className={`chip${sort === option.key ? ' is-active' : ''}`}
+                    onClick={() => setSort(option.key)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
-          <motion.div
-            className="ledger"
-            initial={reduce ? undefined : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {ranked.map((entry) => (
-              <OpportunityRow key={entry.fundamentals.ticker} entry={entry} />
-            ))}
-          </motion.div>
+          <div className="rank-head">
+            <span className="eyebrow">
+              {visible.length === ranked.length
+                ? `${ranked.length} ${ranked.length === 1 ? 'fundo aprovado' : 'fundos aprovados'} de ${integer.format(report?.universeSize ?? 0)}`
+                : `${visible.length} de ${ranked.length} aprovados`}
+            </span>
+            <span className="rank-legend">
+              soma = colocação DY + colocação P/VP · menor é melhor · o número é a colocação geral
+            </span>
+          </div>
+
+          {visible.length === 0 ? (
+            <div className="ledger">
+              <div className="empty-invite">
+                <h3>Nenhum fundo nessa categoria</h3>
+                <p>Os {ranked.length} aprovados estão em outras categorias.</p>
+              </div>
+            </div>
+          ) : (
+            <motion.div
+              className="ledger"
+              key={`${[...categories].sort().join('-')}|${sort}`}
+              initial={reduce ? undefined : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {visible.map((entry) => (
+                <OpportunityRow key={entry.fundamentals.ticker} entry={entry} />
+              ))}
+            </motion.div>
+          )}
 
           {report != null && (
             <div className="rejected-note">

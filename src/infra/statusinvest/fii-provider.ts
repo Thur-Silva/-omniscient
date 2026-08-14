@@ -1,4 +1,8 @@
-import type { FiiFundamentals, FiiFundamentalsProvider } from '../../domain/fii/fundamentals'
+import type {
+  FiiCategory,
+  FiiFundamentals,
+  FiiFundamentalsProvider,
+} from '../../domain/fii/fundamentals'
 import { QuoteUnavailableError } from '../../domain/errors/asset-error'
 import type { HttpClient } from '../http/client'
 import type { StatusInvestFiiItem, StatusInvestFiiResponse } from './types'
@@ -19,10 +23,27 @@ function toNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+/**
+ * `sectorname` da fonte -> categoria do domínio.
+ *
+ * Valores observados no universo de 603 fundos em 14/08/2026: "Fundo de Tijolo"
+ * (220), "Fundo Misto" (200), "Fundo de Papel" (152), "Financeiro e Outros" (19),
+ * "Bens Industriais" (7) e "Consumo Cíclico" (5). Os três primeiros mapeiam
+ * direto; o resto cai em `outros`.
+ */
+function toCategory(sectorName: string | null | undefined): FiiCategory {
+  const normalized = (sectorName ?? '').trim().toLowerCase()
+  if (normalized.includes('papel')) return 'papel'
+  if (normalized.includes('tijolo')) return 'tijolo'
+  if (normalized.includes('misto')) return 'misto'
+  return 'outros'
+}
+
 function toFundamentals(item: StatusInvestFiiItem): FiiFundamentals {
   return {
     ticker: item.ticker.trim().toUpperCase(),
     name: item.companyname?.trim() ?? item.ticker,
+    category: toCategory(item.sectorname),
     segment: item.segment?.trim() || item.subsectorname?.trim() || null,
     price: toNumber(item.price),
     dividendYield: toNumber(item.dy),

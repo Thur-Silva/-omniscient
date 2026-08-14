@@ -1,5 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useId, useState } from 'react'
+import { FII_CATEGORY_LABELS } from '../../../../domain/fii/fundamentals'
 import type { RankedFii } from '../../../../domain/fii/ranking'
 
 interface OpportunityRowProps {
@@ -20,8 +21,12 @@ export default function OpportunityRow({ entry }: OpportunityRowProps) {
 
   const { fundamentals: f, dividendYieldRank, priceToBookRank, score, position } = entry
 
+  // Destaque vem da colocação geral, não da posição na tela: com filtro ativo o
+  // primeiro item visível pode ser o 7º do ranking.
+  const isPodium = position <= 3
+
   return (
-    <div className={`rank-item${open ? ' is-open' : ''}`}>
+    <div className={`rank-item${open ? ' is-open' : ''}${isPodium ? ' is-podium' : ''}`}>
       <button
         type="button"
         className="rank-summary"
@@ -33,7 +38,14 @@ export default function OpportunityRow({ entry }: OpportunityRowProps) {
 
         <span className="rank-identity">
           <strong className="ticker">{f.ticker}</strong>
-          <span>{f.segment ?? f.name}</span>
+          <span>
+            <i className={`cat-dot is-${f.category}`} aria-hidden="true" />
+            {FII_CATEGORY_LABELS[f.category]}
+            {/* A fonte às vezes repete a categoria no segmento ("Misto"/"Misto"). */}
+            {f.segment && f.segment.toLowerCase() !== FII_CATEGORY_LABELS[f.category].toLowerCase()
+              ? ` · ${f.segment}`
+              : ''}
+          </span>
         </span>
 
         <span className="rank-metrics">

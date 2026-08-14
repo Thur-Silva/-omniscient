@@ -1033,7 +1033,9 @@ body {
   text-align: right;
 }
 
-.rank-item:nth-child(-n + 3) .rank-position {
+/* Pelo `.is-podium` e não por nth-child: com filtro ativo o primeiro item da
+   tela pode ser o 7º do ranking geral, e destacar por posição na lista mentiria. */
+.rank-item.is-podium .rank-position {
   color: var(--brass);
 }
 
@@ -1096,9 +1098,112 @@ body {
   color: var(--paper-dim);
 }
 
-.rank-item:nth-child(-n + 3) .rank-score {
+.rank-item.is-podium .rank-score {
   border-color: color-mix(in srgb, var(--brass) 50%, transparent);
   color: var(--brass);
+}
+
+/* Ponto de categoria: identifica papel/tijolo/misto sem virar mais um texto */
+.cat-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: 1px;
+  flex-shrink: 0;
+}
+
+.cat-dot.is-papel {
+  background: var(--brass);
+}
+.cat-dot.is-tijolo {
+  background: var(--jade);
+}
+.cat-dot.is-misto {
+  background: var(--paper-dim);
+}
+.cat-dot.is-outros {
+  background: var(--graphite-dim);
+}
+
+/* ── Filtros da lista ───────────────────────────────────────────────────── */
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.filter-label {
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--graphite-dim);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--rule-bright);
+  border-radius: 99px;
+  background: var(--ink-sunken);
+  color: var(--graphite);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-variation-settings: 'wght' 550;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.18s var(--ease-out), color 0.18s var(--ease-out),
+    background 0.18s var(--ease-out);
+}
+
+.chip b {
+  font-family: var(--font-price);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--graphite-dim);
+}
+
+.chip:hover:not(:disabled) {
+  color: var(--paper);
+  border-color: var(--graphite);
+}
+
+.chip.is-active {
+  border-color: var(--brass);
+  background: var(--brass-soft);
+  color: var(--brass);
+}
+
+.chip.is-active b {
+  color: var(--brass);
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chip-clear {
+  border-style: dashed;
+  border-color: var(--rule-bright);
+  color: var(--graphite-dim);
 }
 
 .rank-detail {

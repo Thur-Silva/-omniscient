@@ -142,6 +142,65 @@ Exatamente o efeito pretendido.
 A tela mostra os critérios e a contagem de descartados por motivo, para o ranking
 não ser caixa preta.
 
+Liquidez **não** entra na soma: ela é critério de corte e, depois, um modo de
+ordenar.
+
+### Filtros da lista
+
+Aplicados **depois** do ranking — não mexem na elegibilidade nem na soma:
+
+- **Categoria** (Papel, Tijolo, Misto, Outros), combináveis. Nenhuma marcada
+  mostra tudo. A categoria vem do `sectorname` da fonte; `Outros` recolhe o que
+  ela classifica fora das três (financeiro, industrial, consumo cíclico), para
+  nada ficar invisível.
+- **Ordenar por**: Colocação (a soma) ou Maior liquidez.
+
+O número ao lado do ativo é sempre a **colocação geral**, nunca renumerada. Isso
+é o ponto: ordenando por liquidez você vê `22, 7, 28, 25, 31` e sabe onde cada
+fundo está no ranking inteiro.
+
+## Cache de servidor
+
+As chamadas às fontes externas passam por `server/api/router.ts`, que guarda os
+resultados no Postgres (Neon) antes de devolver.
+
+Duas regras, um mecanismo:
+
+- **Janela de 10 minutos, global por recurso.** Não por usuário: se alguém buscou
+  os fundamentos há dois minutos, todos os outros leem o mesmo snapshot até a
+  janela virar.
+- **Fallback quando a cota estoura.** Se a fonte responde 429, 5xx ou cai, serve o
+  último snapshot bem-sucedido marcado como `stale` em vez de falhar.
+
+Os cabeçalhos dizem de onde veio a resposta: `X-Cache: miss | hit | stale | bypass`,
+mais `X-Captured-At` e `X-Stale-Reason`.
+
+Duas tabelas, porque são duas responsabilidades: `api_snapshot` guarda **o que** a
+fonte devolveu, `api_fetch_log` guarda **quando** ela foi consultada.
+
+A reserva da janela é um `insert ... on conflict do update ... where` com
+`returning`: dois pedidos simultâneos disputam a mesma linha e só um recebe
+resposta, então só um vai à fonte. Sobre isso há um *single-flight* em memória,
+porque no cache frio quem perde a reserva ainda não tem snapshot para servir e
+acabaria chamando a fonte também — com N usuários no primeiro acesso, seriam N
+chamadas.
+
+Sem `DATABASE_URL` a aplicação **continua funcionando**, só sem cache nem janela
+(`X-Cache: bypass`) e com aviso no console.
+
+### Rodar
+
+```bash
+npm run db:migrate   # aplica migrations/*.sql
+npm run dev          # dev: as rotas /api/* passam pelo cache
+npm run start        # produção: build + servidor Node servindo API e estáticos
+```
+
+O dev server e a produção usam **o mesmo handler** (`server/api/router.ts`), então
+não divergem. Em dev ele entra como plugin do Vite; em produção, em
+`server/index.ts`. Foi por isso que o `server.proxy` do Vite saiu: proxy puro não
+consulta banco.
+
 ### Fonte dos fundamentos
 
 A brapi **não fornece DY nem P/VP** em nenhum plano gratuito: `sortBy` aceita só

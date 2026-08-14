@@ -70,6 +70,9 @@ function reject(fii: FiiFundamentals): RejectionReason | null {
  *
  * Somar colocações em vez de olhar um índice só evita que um DY alto isolado, ou
  * um P/VP baixo isolado, carregue o fundo para o topo sozinho.
+ *
+ * Liquidez não entra na soma: ela é critério de corte (R$ 2 milhões) e, depois,
+ * apenas um modo de ordenar a lista já ranqueada.
  */
 export function rankOpportunities(universe: readonly FiiFundamentals[]): OpportunityRanking {
   const rejected: RejectedFii[] = []
