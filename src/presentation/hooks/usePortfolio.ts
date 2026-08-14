@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAuth } from '@clerk/react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PortfolioView } from '../../application/portfolio/load-portfolio'
+import { createPortfolioServices } from '../../composition/container'
 import type { NewPosition } from '../../domain/portfolio/position'
-import { loadPortfolio, positionRepository } from '../../composition/container'
-
-// Sem autenticação ainda; quando houver, o id vem da sessão.
-const CURRENT_USER_ID = 'local'
 
 export interface UsePortfolioResult {
   view: PortfolioView | null
@@ -15,21 +13,38 @@ export interface UsePortfolioResult {
   removePosition: (id: string) => Promise<void>
 }
 
+/**
+ * Carrega a carteira do usuário autenticado. A identidade vem do Clerk, então
+ * cada conta enxerga apenas as suas posições.
+ */
 export function usePortfolio(): UsePortfolioResult {
+  const { isLoaded, userId } = useAuth()
   const [view, setView] = useState<PortfolioView | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const requestRef = useRef<AbortController | null>(null)
 
+  // Recria os serviços quando o usuário muda, para não vazar a carteira de uma
+  // conta para outra ao trocar de sessão no mesmo navegador.
+  const services = useMemo(() => (userId ? createPortfolioServices(userId) : null), [userId])
+
   const load = useCallback(async () => {
     requestRef.current?.abort()
+
+    if (services == null || userId == null) {
+      // Sem usuário resolvido ainda: nada para carregar.
+      setView(null)
+      setLoading(!isLoaded)
+      return
+    }
+
     const controller = new AbortController()
     requestRef.current = controller
 
     setLoading(true)
     setError(null)
     try {
-      const next = await loadPortfolio.execute(CURRENT_USER_ID, controller.signal)
+      const next = await services.loadPortfolio.execute(userId, controller.signal)
       if (!controller.signal.aborted) setView(next)
     } catch (cause) {
       if (!controller.signal.aborted) {
@@ -38,7 +53,7 @@ export function usePortfolio(): UsePortfolioResult {
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
-  }, [])
+  }, [services, userId, isLoaded])
 
   useEffect(() => {
     void load()
@@ -47,18 +62,20 @@ export function usePortfolio(): UsePortfolioResult {
 
   const addPosition = useCallback(
     async (position: NewPosition) => {
-      await positionRepository.add(position)
+      if (services == null) throw new Error('É preciso estar autenticado para adicionar posições')
+      await services.positionRepository.add(position)
       await load()
     },
-    [load],
+    [services, load],
   )
 
   const removePosition = useCallback(
     async (id: string) => {
-      await positionRepository.remove(id)
+      if (services == null) return
+      await services.positionRepository.remove(id)
       await load()
     },
-    [load],
+    [services, load],
   )
 
   const refresh = useCallback(() => {

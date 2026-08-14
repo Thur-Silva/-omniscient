@@ -2,17 +2,25 @@ import { isAssetType, isCurrency } from '../../domain/asset/type'
 import type { NewPosition, Position } from '../../domain/portfolio/position'
 import type { PositionRepository } from '../../domain/portfolio/repository'
 
-const STORAGE_KEY = 'omniscient.positions.v1'
+const STORAGE_PREFIX = 'omniscient.positions.v1'
 
 /**
  * Persiste as posições no navegador. Substitui a carteira fixa que existia na
  * AssetsPage: começa vazia e guarda só o que o usuário cadastrar.
+ *
+ * A chave é namespaced pelo id do usuário do Clerk, então cada conta tem a sua
+ * carteira mesmo compartilhando o navegador.
  */
 export class LocalStoragePositionRepository implements PositionRepository {
   private readonly storage: Storage | null
+  private readonly storageKey: string
 
-  constructor(storage?: Storage) {
+  constructor(userId: string, storage?: Storage) {
+    if (userId.trim() === '') {
+      throw new Error('LocalStoragePositionRepository exige um userId')
+    }
     this.storage = storage ?? safeLocalStorage()
+    this.storageKey = `${STORAGE_PREFIX}.${userId}`
   }
 
   async list(): Promise<Position[]> {
@@ -32,7 +40,7 @@ export class LocalStoragePositionRepository implements PositionRepository {
   }
 
   private read(): Position[] {
-    const raw = this.storage?.getItem(STORAGE_KEY)
+    const raw = this.storage?.getItem(this.storageKey)
     if (!raw) return []
     try {
       const parsed: unknown = JSON.parse(raw)
@@ -44,7 +52,7 @@ export class LocalStoragePositionRepository implements PositionRepository {
   }
 
   private write(positions: Position[]): void {
-    this.storage?.setItem(STORAGE_KEY, JSON.stringify(positions))
+    this.storage?.setItem(this.storageKey, JSON.stringify(positions))
   }
 }
 

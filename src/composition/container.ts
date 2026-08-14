@@ -10,11 +10,28 @@ import { LocalStoragePositionRepository } from '../infra/repository/position'
  * Composition root: o único lugar que conhece as implementações concretas.
  * A camada de apresentação consome as portas, não a infra.
  */
+
+// O provedor de cotação não depende do usuário, então pode ser compartilhado.
 const brapiHttp = new HttpClient({
   baseUrl: appConfig.brapiBaseUrl,
   timeoutMs: 15_000,
 })
 
 export const quoteProvider: QuoteProvider = new BrapiQuoteProvider(brapiHttp)
-export const positionRepository: PositionRepository = new LocalStoragePositionRepository()
-export const loadPortfolio = new LoadPortfolio(positionRepository, quoteProvider)
+
+export interface PortfolioServices {
+  positionRepository: PositionRepository
+  loadPortfolio: LoadPortfolio
+}
+
+/**
+ * A carteira é por usuário (id vindo do Clerk), então estes serviços são
+ * construídos por sessão em vez de no carregamento do módulo.
+ */
+export function createPortfolioServices(userId: string): PortfolioServices {
+  const positionRepository = new LocalStoragePositionRepository(userId)
+  return {
+    positionRepository,
+    loadPortfolio: new LoadPortfolio(positionRepository, quoteProvider),
+  }
+}
