@@ -66,14 +66,15 @@ export default function PositionRow({ row, money, onRemove, domain }: PositionRo
           />
         </span>
 
-        <span className="position-figure">
-          {money(quote?.price, currency)}
-          <small>preço atual</small>
-        </span>
-
-        <span className={`position-figure ${signClass(profitPercent)}`}>
-          {signedPercent(profitPercent)}
-          <small>resultado</small>
+        <span className="position-figures">
+          <span className="position-figure">
+            {money(quote?.price, currency)}
+            <small>preço atual</small>
+          </span>
+          <span className={`position-figure ${signClass(profitPercent)}`}>
+            {signedPercent(profitPercent)}
+            <small>resultado</small>
+          </span>
         </span>
 
         <motion.span
