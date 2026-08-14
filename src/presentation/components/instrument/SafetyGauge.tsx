@@ -1,0 +1,194 @@
+import { motion, useReducedMotion } from 'motion/react'
+
+export interface SafetyGaugeProps {
+  /** Datum da escala: o que a posição custou. */
+  costBasis: number
+  /** Onde o mercado está agora. */
+  marketValue: number | null
+  /** Onde o modelo diz que deveria estar. Ausente quando não há fundamentos. */
+  fairValue?: number | null
+  size?: 'hero' | 'row'
+  /** Rótulo acessível — o gauge é uma imagem de dados. */
+  label?: string
+}
+
+interface Scale {
+  lo: number
+  hi: number
+  step: number
+}
+
+/** Passos "redondos" para a régua não cair em 7,3% ou 13,6%. */
+function niceStep(rough: number): number {
+  const candidates = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500]
+  return candidates.find((c) => c >= rough) ?? 1000
+}
+
+function buildScale(marks: number[]): Scale {
+  const points = [0, ...marks]
+  const min = Math.min(...points)
+  const max = Math.max(...points)
+  const span = Math.max(max - min, 10)
+  const step = niceStep(span / 3)
+  return {
+    lo: Math.floor((min - span * 0.18) / step) * step,
+    hi: Math.ceil((max + span * 0.18) / step) * step,
+    step,
+  }
+}
+
+function ratio(value: number, scale: Scale): number {
+  const span = scale.hi - scale.lo
+  if (span <= 0) return 50
+  return Math.min(100, Math.max(0, ((value - scale.lo) / span) * 100))
+}
+
+function formatSigned(value: number, digits = 1): string {
+  return `${value > 0 ? '+' : ''}${value.toFixed(digits)}%`
+}
+
+/**
+ * O instrumento da aplicação: mede a folga entre preço e valor.
+ *
+ * A escala é percentual sobre o custo, então o zero é sempre "o que você pagou".
+ * A barra vai do custo até o mercado (magnitude do retorno). A folga até o valor
+ * justo — a margem de segurança — é anotada como linha de cota, a notação de
+ * desenho técnico para medir um vão. Preencher esse vão com hachura fazia o
+ * instrumento parecer poste de barbeiro.
+ */
+export default function SafetyGauge({
+  costBasis,
+  marketValue,
+  fairValue,
+  size = 'hero',
+  label,
+}: SafetyGaugeProps) {
+  const reduce = useReducedMotion()
+  const isHero = size === 'hero'
+
+  if (costBasis <= 0 || marketValue == null) {
+    return <div className={`gauge is-${size} is-idle`} aria-hidden="true" />
+  }
+
+  const marketPct = (marketValue / costBasis - 1) * 100
+  const fairPct = fairValue != null && fairValue > 0 ? (fairValue / costBasis - 1) * 100 : null
+  const scale = buildScale(fairPct == null ? [marketPct] : [marketPct, fairPct])
+
+  const datumAt = ratio(0, scale)
+  const marketAt = ratio(marketPct, scale)
+  const fairAt = fairPct == null ? null : ratio(fairPct, scale)
+
+  const gainPositive = marketPct >= 0
+  const clearance = fairPct == null ? null : fairPct - marketPct
+
+  const majors: number[] = []
+  for (let v = scale.lo; v <= scale.hi + 1e-6; v += scale.step) majors.push(Number(v.toFixed(4)))
+
+  const minorStep = scale.step / 4
+  const minors: number[] = []
+  for (let v = scale.lo; v <= scale.hi + 1e-6; v += minorStep) {
+    const rounded = Number(v.toFixed(4))
+    if (!majors.includes(rounded)) minors.push(rounded)
+  }
+
+  const spring = reduce
+    ? { duration: 0 }
+    : // Mola sub-amortecida: o ponteiro passa do ponto e assenta, como medidor real.
+      { type: 'spring' as const, stiffness: 58, damping: 11, mass: 1.1, delay: 0.3 }
+
+  const sweep = reduce
+    ? { duration: 0 }
+    : { duration: 0.8, ease: [0.16, 1, 0.3, 1] as const, delay: 0.14 }
+
+  return (
+    <div
+      className={`gauge is-${size}`}
+      role="img"
+      aria-label={
+        label ??
+        `Mercado ${formatSigned(marketPct)} sobre o custo` +
+          (clearance == null ? '' : `, folga de ${formatSigned(clearance)} até o valor justo`)
+      }
+    >
+      {/* Linha de cota: a margem de segurança medida entre mercado e valor justo */}
+      {isHero && fairAt != null && clearance != null && (
+        <motion.div
+          className={`gauge-dimension ${clearance >= 0 ? 'is-open' : 'is-negative'}`}
+          style={{
+            left: `${Math.min(marketAt, fairAt)}%`,
+            width: `${Math.abs(fairAt - marketAt)}%`,
+          }}
+          initial={reduce ? undefined : { opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={reduce ? { duration: 0 } : { duration: 0.5, delay: 0.72 }}
+        >
+          <span className="gauge-dimension-rule" />
+          <span className="gauge-dimension-value">{formatSigned(clearance)}</span>
+        </motion.div>
+      )}
+
+      <div className="gauge-body">
+        {/* Trilho e magnitude do retorno */}
+        <div className="gauge-rail">
+          <motion.div
+            className={`gauge-band ${gainPositive ? 'is-up' : 'is-down'}`}
+            style={{ left: `${Math.min(datumAt, marketAt)}%` }}
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.abs(marketAt - datumAt)}%` }}
+            transition={sweep}
+          />
+          <span className="gauge-datum" style={{ left: `${datumAt}%` }} />
+        </div>
+
+        {/* Alvo: caret de latão sob o trilho, apontando para o valor justo */}
+        {fairAt != null && (
+          <motion.span
+            className="gauge-target"
+            style={{ left: `${fairAt}%` }}
+            initial={reduce ? undefined : { opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={reduce ? { duration: 0 } : { duration: 0.4, delay: 0.62 }}
+          />
+        )}
+
+        {/* Ponteiro sobre o trilho, com cabeça apontando para baixo */}
+        <motion.span
+          className={`gauge-needle ${gainPositive ? 'is-up' : 'is-down'}`}
+          initial={reduce ? { left: `${marketAt}%` } : { left: `${datumAt}%` }}
+          animate={{ left: `${marketAt}%` }}
+          transition={spring}
+        />
+      </div>
+
+      {isHero && (
+        <>
+          {/* Régua de desenho: traços menores entre os principais */}
+          <div className="gauge-ruler">
+            {minors.map((tick) => (
+              <span key={`m${tick}`} className="gauge-tick" style={{ left: `${ratio(tick, scale)}%` }} />
+            ))}
+            {majors.map((tick) => (
+              <span
+                key={`M${tick}`}
+                className={`gauge-tick is-major${tick === 0 ? ' is-datum' : ''}`}
+                style={{ left: `${ratio(tick, scale)}%` }}
+              />
+            ))}
+          </div>
+
+          <div className="gauge-labels">
+            {majors.map((tick) => (
+              <span
+                key={tick}
+                className={`gauge-label${tick === 0 ? ' is-datum' : ''}`}
+                style={{ left: `${ratio(tick, scale)}%` }}
+              >
+                {tick === 0 ? 'custo' : formatSigned(tick, 0)}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
