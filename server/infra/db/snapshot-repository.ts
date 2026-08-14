@@ -20,6 +20,15 @@ function toSnapshot(row: SnapshotRow): DataSnapshot {
   }
 }
 
+/**
+ * Snapshots em `jsonb`.
+ *
+ * `jsonb` normaliza a ordem das chaves de objeto ao gravar, então o payload que
+ * volta pode ter os campos em ordem diferente da resposta original. Não afeta
+ * nada aqui: a ordem de elementos de array é preservada, e é dela que o ranking
+ * e as listas dependem. `json` preservaria a ordem literal, mas perderia os
+ * operadores e o índice que tornam o payload consultável.
+ */
 export class PostgresSnapshotRepository implements SnapshotRepository {
   private readonly pool: Pool
 

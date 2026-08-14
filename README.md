@@ -188,6 +188,12 @@ chamadas.
 Sem `DATABASE_URL` a aplicação **continua funcionando**, só sem cache nem janela
 (`X-Cache: bypass`) e com aviso no console.
 
+> O plugin de dev copia o `.env` para `process.env` antes de subir. `loadEnv` do
+> Vite devolve um objeto e **não** popula `process.env`, e os módulos de servidor
+> leem de lá — como em produção, onde `tsx --env-file=.env` faz isso. Sem essa
+> hidratação o cache ficava desligado só em dev, respondendo `X-Cache: bypass` e
+> sem gravar nada, mesmo com a variável no arquivo.
+
 ### Rodar
 
 ```bash

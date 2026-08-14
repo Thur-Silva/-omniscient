@@ -15,10 +15,12 @@ export default defineConfig(({ mode }) => {
         'senão as cotações vão responder 401.',
     )
   }
+  // O estado real do cache é reportado pelo plugin, depois de hidratar
+  // process.env: avisar aqui, olhando só o arquivo, já enganou uma vez.
   if (!env.DATABASE_URL) {
     console.warn(
-      '[cache] DATABASE_URL não definida. As chamadas de API vão direto à fonte, sem cache ' +
-        'nem janela de 10 minutos. Rode npm run db:migrate depois de configurar.',
+      '[cache] DATABASE_URL não definida no .env. Sem ela não há cache nem janela de 10 ' +
+        'minutos. Configure e rode npm run db:migrate.',
     )
   }
 
