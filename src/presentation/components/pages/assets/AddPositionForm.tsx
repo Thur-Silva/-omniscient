@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { ASSET_TYPE_LABELS, isAssetType, isCurrency, type AssetType, type Currency } from '../../../../domain/asset/type'
+import {
+  ASSET_TYPE_LABELS,
+  isAssetType,
+  isCurrency,
+  type AssetType,
+  type Currency,
+} from '../../../../domain/asset/type'
 import type { NewPosition } from '../../../../domain/portfolio/position'
 
 interface AddPositionFormProps {
@@ -34,12 +40,10 @@ export default function AddPositionForm({ onSubmit }: AddPositionFormProps) {
     const quantity = Number(form.quantity)
     const averagePrice = Number(form.averagePrice)
 
-    if (ticker === '') return setError('Informe o ticker (ex.: WEGE3).')
-    if (!Number.isFinite(quantity) || quantity <= 0) return setError('Quantidade deve ser maior que zero.')
-    if (!Number.isFinite(averagePrice) || averagePrice <= 0) return setError('Preço médio deve ser maior que zero.')
-
-    const earningsPerShare = form.earningsPerShare === '' ? undefined : Number(form.earningsPerShare)
-    const growthPercent = form.growthPercent === '' ? undefined : Number(form.growthPercent)
+    if (ticker === '') return setError('Informe o ticker do ativo, como WEGE3.')
+    if (!Number.isFinite(quantity) || quantity <= 0) return setError('A quantidade precisa ser maior que zero.')
+    if (!Number.isFinite(averagePrice) || averagePrice <= 0)
+      return setError('O preço médio precisa ser maior que zero.')
 
     setSaving(true)
     try {
@@ -50,8 +54,8 @@ export default function AddPositionForm({ onSubmit }: AddPositionFormProps) {
         quantity,
         averagePrice,
         acquiredAt: form.acquiredAt === '' ? new Date().toISOString().slice(0, 10) : form.acquiredAt,
-        earningsPerShare,
-        growthPercent,
+        earningsPerShare: form.earningsPerShare === '' ? undefined : Number(form.earningsPerShare),
+        growthPercent: form.growthPercent === '' ? undefined : Number(form.growthPercent),
       })
       setForm(EMPTY)
     } catch (cause) {
@@ -63,9 +67,9 @@ export default function AddPositionForm({ onSubmit }: AddPositionFormProps) {
 
   return (
     <form className="card" onSubmit={handleSubmit}>
-      <div className="table-header">
-        <h2>Adicionar posição</h2>
-        <span className="table-count">A cotação é buscada na brapi ao salvar</span>
+      <div className="section-head">
+        <h2 className="section-title">Adicionar posição</h2>
+        <span className="section-count">a cotação é lida ao salvar</span>
       </div>
 
       <div className="form-grid">
@@ -135,16 +139,17 @@ export default function AddPositionForm({ onSubmit }: AddPositionFormProps) {
           />
         </label>
         <label className="field">
-          <span>LPA (opcional, p/ Graham)</span>
+          <span>LPA</span>
           <input
             type="number"
             step="any"
             value={form.earningsPerShare}
             onChange={(e) => update('earningsPerShare', e.target.value)}
           />
+          <span className="field-hint">Lucro por ação. Habilita o valor justo.</span>
         </label>
         <label className="field">
-          <span>Crescimento % (0–50)</span>
+          <span>Crescimento</span>
           <input
             type="number"
             step="any"
@@ -153,13 +158,14 @@ export default function AddPositionForm({ onSubmit }: AddPositionFormProps) {
             value={form.growthPercent}
             onChange={(e) => update('growthPercent', e.target.value)}
           />
+          <span className="field-hint">Percentual anual, de 0 a 50.</span>
         </label>
       </div>
 
       {error && <p className="alert alert-error">{error}</p>}
 
       <button className="button" type="submit" disabled={saving}>
-        {saving ? 'Salvando…' : 'Adicionar posição'}
+        {saving ? 'Salvando…' : 'Salvar posição'}
       </button>
     </form>
   )

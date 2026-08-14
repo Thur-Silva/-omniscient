@@ -10,12 +10,15 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        <span className="sidebar-logo">O</span>
+        <span className="sidebar-logo" aria-hidden="true">
+          O
+        </span>
         <div>
           <strong>Omniscient</strong>
-          <small>Consolidador de Carteira</small>
+          <small>Instrumento de valuation</small>
         </div>
       </div>
+
       <nav className="sidebar-nav">
         {NAV_ITEMS.map((item) => (
           <NavLink
@@ -28,7 +31,11 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <div className="sidebar-footer">v0.1.0</div>
+
+      <div className="sidebar-footer">
+        <span>v0.1.0</span>
+        <span>B3 · BRL</span>
+      </div>
     </aside>
   )
 }

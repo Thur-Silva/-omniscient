@@ -1,6 +1,11 @@
-import { ASSET_TYPE_LABELS, CURRENCY_SYMBOLS, type AssetType, type Currency } from '../../../../domain/asset/type'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { useState } from 'react'
+import { ASSET_TYPE_LABELS, type AssetType, type Currency } from '../../../../domain/asset/type'
 import { usePortfolio } from '../../../hooks/usePortfolio'
+import AnimatedNumber from '../../instrument/AnimatedNumber'
+import SafetyGauge from '../../instrument/SafetyGauge'
 import AddPositionForm from './AddPositionForm'
+import PositionRow from './PositionRow'
 
 const formatters: Record<Currency, Intl.NumberFormat> = {
   BRL: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }),
@@ -11,188 +16,257 @@ function money(value: number | null | undefined, currency: Currency = 'BRL'): st
   return value == null ? '—' : formatters[currency].format(value)
 }
 
-function percent(value: number | null | undefined, digits = 2): string {
-  return value == null ? '—' : `${value.toFixed(digits)}%`
-}
-
 function signClass(value: number | null | undefined): string {
   if (value == null) return ''
   return value >= 0 ? 'positive' : 'negative'
 }
 
+/** Sequência de entrada: o painel se acende de cima para baixo. */
+const panel = {
+  hidden: {},
+  shown: { transition: { staggerChildren: 0.07, delayChildren: 0.04 } },
+}
+
+const rise = {
+  hidden: { opacity: 0, y: 14 },
+  shown: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] as const } },
+}
+
 export default function AssetsPage() {
   const { view, loading, error, refresh, addPosition, removePosition } = usePortfolio()
+  const [formOpen, setFormOpen] = useState(false)
+  const reduce = useReducedMotion()
 
-  const portfolio = view?.portfolio
   const rows = view?.rows ?? []
+  const portfolio = view?.portfolio
   const totalInvested = portfolio?.totalInvested ?? 0
   const totalValue = portfolio?.totalCurrentValue ?? null
   const totalProfit = portfolio?.totalProfit ?? null
   const totalProfitPercent = portfolio?.totalProfitPercent ?? null
   const allocation = portfolio?.allocationByType() ?? {}
 
+  const allocationEntries = (Object.entries(allocation) as [AssetType, number][]).sort(
+    (a, b) => b[1] - a[1],
+  )
+
+  // Só agrega valor justo se TODAS as posições tiverem valuation. Somar um
+  // subconjunto daria uma margem de segurança que não significa nada.
+  const valued = rows.filter((row) => row.fairValue != null && row.quote != null)
+  const allValued = rows.length > 0 && valued.length === rows.length
+  const portfolioFairValue = allValued
+    ? valued.reduce((sum, row) => sum + (row.fairValue ?? 0) * row.position.quantity, 0)
+    : null
+
+  const hasPositions = rows.length > 0
+  const showForm = formOpen || (!hasPositions && !loading)
+
   return (
-    <div className="page">
+    <motion.div
+      className="page stack-xl"
+      variants={reduce ? undefined : panel}
+      initial="hidden"
+      animate="shown"
+    >
       {error && (
-        <div className="alert alert-error">
+        <motion.div className="alert alert-error" variants={reduce ? undefined : rise}>
           <span>{error}</span>
           <button className="button button-ghost" type="button" onClick={refresh}>
             Tentar novamente
           </button>
-        </div>
+        </motion.div>
       )}
 
-      {view != null && view.quoteErrors.length > 0 && (
-        <div className="alert alert-warning">
-          <strong>Algumas cotações não foram carregadas:</strong>
-          <ul className="alert-list">
-            {view.quoteErrors.map((quoteError) => (
-              <li key={quoteError.ticker}>
-                <code>{quoteError.ticker}</code> — {quoteError.message}
-              </li>
-            ))}
-          </ul>
+      {/* ── O instrumento ───────────────────────────────────────────────── */}
+      <motion.section className="instrument" variants={reduce ? undefined : rise}>
+        <div className="instrument-head">
+          <span className="eyebrow">Carteira</span>
+          <span className="header-date">
+            {loading
+              ? 'lendo cotações…'
+              : view?.lastUpdatedAt != null
+                ? `apurado ${new Date(view.lastUpdatedAt).toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}`
+                : 'sem leitura'}
+          </span>
         </div>
-      )}
 
-      <section className="summary-grid">
-        <article className="card">
-          <span className="card-label">Total investido</span>
-          <strong className="card-value">{money(totalInvested)}</strong>
-        </article>
-        <article className="card">
-          <span className="card-label">Valor atual</span>
-          <strong className="card-value">{money(totalValue)}</strong>
-        </article>
-        <article className="card">
-          <span className="card-label">Resultado</span>
-          <strong className={`card-value ${signClass(totalProfit)}`}>
-            {totalProfit == null ? '—' : `${money(totalProfit)} (${percent(totalProfitPercent)})`}
-          </strong>
-        </article>
-        <article className="card">
-          <span className="card-label">Alocação por tipo</span>
-          {Object.keys(allocation).length === 0 ? (
-            <span className="muted">Sem posições</span>
-          ) : (
-            <div className="allocation">
-              {(Object.entries(allocation) as [AssetType, number][])
-                .sort((a, b) => b[1] - a[1])
-                .map(([type, pct]) => (
-                  <div key={type} className="allocation-row">
-                    <span>{ASSET_TYPE_LABELS[type]}</span>
-                    <div className="allocation-bar">
-                      <div className="allocation-fill" style={{ width: `${pct}%` }} />
-                    </div>
-                    <strong>{pct.toFixed(1)}%</strong>
-                  </div>
-                ))}
-            </div>
-          )}
-        </article>
-      </section>
-
-      <section className="card">
-        <div className="table-header">
-          <h2>Ativos</h2>
-          <div className="table-actions">
-            <span className="table-count">
-              {loading ? 'Carregando cotações…' : `${rows.length} ${rows.length === 1 ? 'posição' : 'posições'}`}
+        <div className="instrument-readout">
+          <div className="verdict">
+            <span className={`verdict-figure ${signClass(totalProfitPercent)}`}>
+              {totalProfitPercent == null ? (
+                '—'
+              ) : (
+                <AnimatedNumber
+                  value={totalProfitPercent}
+                  format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}%`}
+                  delay={0.2}
+                />
+              )}
             </span>
-            <button className="button button-ghost" type="button" onClick={refresh} disabled={loading}>
-              Atualizar
-            </button>
+            <span className="verdict-label">sobre o custo da carteira</span>
+            <span className="verdict-note">
+              {!hasPositions
+                ? 'O instrumento está calibrado e aguardando a primeira posição.'
+                : allValued
+                  ? 'Todas as posições têm valuation, então a margem de segurança agregada é comparável.'
+                  : `${valued.length} de ${rows.length} ${rows.length === 1 ? 'posição tem' : 'posições têm'} LPA e crescimento informados. A margem agregada aparece quando todas tiverem.`}
+            </span>
+          </div>
+
+          <div className="tally">
+            <div className="tally-row">
+              <span className="tally-value">
+                {totalValue == null ? (
+                  '—'
+                ) : (
+                  <AnimatedNumber value={totalValue} format={(v) => money(v)} delay={0.26} />
+                )}
+              </span>
+              <span className="tally-label">Valor de mercado</span>
+            </div>
+            <div className="tally-row">
+              <span className="tally-value">
+                <AnimatedNumber value={totalInvested} format={(v) => money(v)} delay={0.32} />
+              </span>
+              <span className="tally-label">Custo total</span>
+            </div>
+            <div className="tally-row">
+              <span className={`tally-value ${signClass(totalProfit)}`}>
+                {totalProfit == null ? (
+                  '—'
+                ) : (
+                  <AnimatedNumber
+                    value={totalProfit}
+                    format={(v) => `${v > 0 ? '+' : ''}${money(v)}`}
+                    delay={0.38}
+                  />
+                )}
+              </span>
+              <span className="tally-label">Resultado</span>
+            </div>
           </div>
         </div>
 
-        {rows.length === 0 ? (
-          <p className="muted empty-state">
-            {loading
-              ? 'Carregando…'
-              : 'Nenhuma posição cadastrada. Adicione um ativo abaixo para buscar a cotação na brapi.'}
-          </p>
-        ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Ativo</th>
-                  <th>Tipo</th>
-                  <th>Qtde</th>
-                  <th>Preço médio</th>
-                  <th>Preço atual</th>
-                  <th>Dia</th>
-                  <th>Investido</th>
-                  <th>Valor atual</th>
-                  <th>P/L</th>
-                  <th>Valor justo</th>
-                  <th>Margem de segurança</th>
-                  <th aria-label="Ações" />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const currency = row.quote?.currency ?? row.position.currency
-                  const invested = row.position.quantity * row.position.averagePrice
-                  const currentValue = row.quote == null ? null : row.position.quantity * row.quote.price
-                  const profit = currentValue == null ? null : currentValue - invested
-                  const profitPercent = profit == null || invested === 0 ? null : (profit / invested) * 100
+        <SafetyGauge
+          costBasis={totalInvested}
+          marketValue={totalValue}
+          fairValue={portfolioFairValue}
+          size="hero"
+          label={`Carteira: mercado ${totalProfitPercent?.toFixed(2) ?? '—'}% sobre o custo`}
+        />
 
-                  return (
-                    <tr key={row.position.id}>
-                      <td>
-                        <div className="asset-cell">
-                          <strong>{row.asset.ticker}</strong>
-                          <span>{row.quoteError ?? row.asset.name}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="badge">{ASSET_TYPE_LABELS[row.asset.type]}</span>
-                      </td>
-                      <td>{row.position.quantity}</td>
-                      <td>{money(row.position.averagePrice, currency)}</td>
-                      <td>{money(row.quote?.price, currency)}</td>
-                      <td className={signClass(row.quote?.changePercent)}>
-                        {percent(row.quote?.changePercent)}
-                      </td>
-                      <td>{money(invested, currency)}</td>
-                      <td>{money(currentValue, currency)}</td>
-                      <td className={signClass(profit)}>{percent(profitPercent)}</td>
-                      <td>{money(row.fairValue, currency)}</td>
-                      <td className={signClass(row.safetyMargin)}>
-                        {row.safetyMargin == null ? '—' : `${(row.safetyMargin * 100).toFixed(1)}%`}
-                      </td>
-                      <td>
-                        <button
-                          className="button button-ghost"
-                          type="button"
-                          onClick={() => void removePosition(row.position.id)}
-                          aria-label={`Remover ${row.asset.ticker}`}
-                        >
-                          Remover
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+        {allocationEntries.length > 0 && (
+          <div className="allocation-strip">
+            <div className="allocation-bar">
+              {allocationEntries.map(([type, pct]) => (
+                <div
+                  key={type}
+                  className="allocation-segment"
+                  style={{ width: `${pct}%` }}
+                  title={`${ASSET_TYPE_LABELS[type]} ${pct.toFixed(1)}%`}
+                />
+              ))}
+            </div>
+            <div className="allocation-legend">
+              {allocationEntries.map(([type, pct]) => (
+                <span key={type} className="allocation-key">
+                  <i />
+                  {ASSET_TYPE_LABELS[type]} <b>{pct.toFixed(1)}%</b>
+                </span>
+              ))}
+            </div>
           </div>
         )}
-      </section>
+      </motion.section>
 
-      <AddPositionForm onSubmit={addPosition} />
+      {/* ── Posições ────────────────────────────────────────────────────── */}
+      <motion.section variants={reduce ? undefined : rise}>
+        <div className="section-head">
+          <h2 className="section-title">Posições</h2>
+          <div className="section-actions">
+            <span className="section-count">
+              {loading ? '···' : `${rows.length} ${rows.length === 1 ? 'ativo' : 'ativos'}`}
+            </span>
+            <button className="button button-ghost" type="button" onClick={refresh} disabled={loading}>
+              Atualizar cotações
+            </button>
+            {hasPositions && (
+              <button
+                className="button"
+                type="button"
+                onClick={() => setFormOpen((value) => !value)}
+                aria-expanded={formOpen}
+              >
+                {formOpen ? 'Fechar' : 'Adicionar posição'}
+              </button>
+            )}
+          </div>
+        </div>
 
-      <footer className="quote-note">
-        Cotações em {CURRENCY_SYMBOLS.BRL} fornecidas pela{' '}
+        {view != null && view.quoteErrors.length > 0 && (
+          <div className="alert alert-warning" style={{ marginBottom: 18 }}>
+            <strong>Algumas cotações não foram lidas</strong>
+            <ul className="alert-list">
+              {view.quoteErrors.map((quoteError) => (
+                <li key={quoteError.ticker}>
+                  <code>{quoteError.ticker}</code> — {quoteError.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="ledger">
+          {!hasPositions ? (
+            <div className="empty-invite">
+              <h3>Nada medido ainda</h3>
+              <p>
+                Cadastre um ativo com quantidade e preço médio. A cotação vem da brapi; informe LPA
+                e crescimento para o instrumento também calcular a margem de segurança.
+              </p>
+            </div>
+          ) : (
+            rows.map((row) => (
+              <PositionRow
+                key={row.position.id}
+                row={row}
+                money={money}
+                onRemove={(id) => void removePosition(id)}
+              />
+            ))
+          )}
+        </div>
+      </motion.section>
+
+      {/* ── Cadastro ────────────────────────────────────────────────────── */}
+      <AnimatePresence initial={false}>
+        {showForm && (
+          <motion.div
+            initial={reduce ? undefined : { opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduce ? undefined : { opacity: 0, y: -10 }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <AddPositionForm
+              onSubmit={async (position) => {
+                await addPosition(position)
+                setFormOpen(false)
+              }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <motion.footer className="quote-note" variants={reduce ? undefined : rise}>
+        Cotações fornecidas pela{' '}
         <a href="https://brapi.dev" target="_blank" rel="noreferrer">
           brapi
         </a>
-        {view?.lastUpdatedAt != null &&
-          ` — atualizado às ${new Date(view.lastUpdatedAt).toLocaleTimeString('pt-BR')}`}
         . Valor justo pelo modelo de Graham, calculado apenas para posições com LPA e crescimento
-        informados.
-      </footer>
-    </div>
+        informados — nada é presumido.
+      </motion.footer>
+    </motion.div>
   )
 }
