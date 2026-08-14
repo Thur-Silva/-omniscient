@@ -1,12 +1,9 @@
-import { BrowserRouter } from 'react-router-dom'
 import AppRoutes from './presentation/routes/AppRoutes'
 
+// O BrowserRouter fica em ClerkAppProvider, porque o ClerkProvider precisa do
+// useNavigate do React Router.
 function App() {
-  return (
-    <BrowserRouter>
-      <AppRoutes />
-    </BrowserRouter>
-  )
+  return <AppRoutes />
 }
 
 export default App
