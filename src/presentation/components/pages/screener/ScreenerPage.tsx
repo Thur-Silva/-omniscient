@@ -1,14 +1,16 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ScreenedAsset } from '../../../../application/screener/screen-watchlist'
+import type { UniverseAsset } from '../../../../domain/asset/universe'
 import { useScreener } from '../../../hooks/useScreener'
 import { buildSharedScale } from '../../instrument/scale'
+import MarketList from './MarketList'
 import ScreenedCard from './ScreenedCard'
 import TickerPicker from './TickerPicker'
 
-type TabKey = 'barato' | 'caro' | 'justo' | 'sem-dados'
+type TabKey = 'mercado' | 'barato' | 'justo' | 'caro' | 'sem-dados'
 
-const TABS: { key: TabKey; label: string }[] = [
+const VERDICT_TABS: { key: Exclude<TabKey, 'mercado'>; label: string }[] = [
   { key: 'barato', label: 'Baratos' },
   { key: 'justo', label: 'Justos' },
   { key: 'caro', label: 'Caros' },
@@ -17,19 +19,44 @@ const TABS: { key: TabKey; label: string }[] = [
 
 export default function ScreenerPage() {
   const { result, loading, error, refresh, addToWatchlist, removeItem } = useScreener()
-  const [tab, setTab] = useState<TabKey>('barato')
+  const [tab, setTab] = useState<TabKey>('mercado')
+  const [picking, setPicking] = useState<UniverseAsset | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [lastAdded, setLastAdded] = useState<string | null>(null)
   const reduce = useReducedMotion()
 
-  const buckets: Record<TabKey, ScreenedAsset[]> = {
-    barato: result?.cheap ?? [],
-    justo: result?.fair ?? [],
-    caro: result?.expensive ?? [],
-    'sem-dados': result?.unrated ?? [],
-  }
+  const buckets = useMemo(
+    () => ({
+      barato: result?.cheap ?? [],
+      justo: result?.fair ?? [],
+      caro: result?.expensive ?? [],
+      'sem-dados': result?.unrated ?? [],
+    }),
+    [result],
+  )
 
-  const total = TABS.reduce((sum, t) => sum + buckets[t.key].length, 0)
-  const visible = buckets[tab]
+  const classified = VERDICT_TABS.reduce((sum, t) => sum + buckets[t.key].length, 0)
+
+  const watched = useMemo(
+    () =>
+      new Set(
+        Object.values(buckets)
+          .flat()
+          .map((asset: ScreenedAsset) => asset.item.ticker),
+      ),
+    [buckets],
+  )
+
+  // Depois de adicionar, leva o usuário até a faixa onde o ativo caiu, em vez de
+  // deixá-lo procurar em qual aba o resultado foi parar.
+  useEffect(() => {
+    if (lastAdded == null || result == null) return
+    const found = (Object.entries(buckets) as [Exclude<TabKey, 'mercado'>, ScreenedAsset[]][]).find(
+      ([, assets]) => assets.some((asset) => asset.item.ticker === lastAdded),
+    )
+    if (found) setTab(found[0])
+    setLastAdded(null)
+  }, [lastAdded, result, buckets])
 
   // Régua única para todos os cartões, senão um desconto de 5% desenharia a
   // mesma barra que um de 40% e a comparação entre ativos se perderia.
@@ -38,15 +65,21 @@ export default function ScreenerPage() {
       buildSharedScale(
         Object.values(buckets)
           .flat()
-          .flatMap((asset) =>
+          .flatMap((asset: ScreenedAsset) =>
             asset.fairValue != null && asset.fairValue > 0 && asset.price != null
               ? [(asset.price / asset.fairValue - 1) * 100]
               : [],
           ),
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [result],
+    [buckets],
   )
+
+  function openPicker(asset: UniverseAsset | null) {
+    setPicking(asset)
+    setPickerOpen(true)
+  }
+
+  const visible = tab === 'mercado' ? [] : buckets[tab]
 
   return (
     <div className="page stack-lg">
@@ -79,8 +112,17 @@ export default function ScreenerPage() {
         </div>
       )}
 
-      <div className="segmented segmented-tabs" role="tablist" aria-label="Classificação">
-        {TABS.map((option) => (
+      <div className="segmented segmented-tabs" role="tablist" aria-label="Visão">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'mercado'}
+          className={`segment${tab === 'mercado' ? ' is-active' : ''}`}
+          onClick={() => setTab('mercado')}
+        >
+          Mercado
+        </button>
+        {VERDICT_TABS.map((option) => (
           <button
             key={option.key}
             type="button"
@@ -95,27 +137,22 @@ export default function ScreenerPage() {
         ))}
       </div>
 
-      {total === 0 ? (
-        <div className="ledger">
-          <div className="empty-invite">
-            <h3>Nada em observação</h3>
-            <p>
-              Busque uma ação ou FII no catálogo da B3 e informe os fundamentos. A cotação vem da
-              brapi; a régua é Graham para ações e P/VP para FIIs.
-            </p>
-            <button className="button" type="button" onClick={() => setPickerOpen(true)}>
-              Adicionar ativo
-            </button>
-          </div>
-        </div>
+      {tab === 'mercado' ? (
+        <MarketList watched={watched} onPick={openPicker} />
       ) : visible.length === 0 ? (
         <div className="ledger">
           <div className="empty-invite">
-            <h3>Nenhum ativo aqui</h3>
+            <h3>{classified === 0 ? 'Nada classificado ainda' : 'Nenhum ativo nesta faixa'}</h3>
             <p>
-              Os {total} ativos em observação estão em outras faixas. Barato é margem acima de 20%;
-              caro, abaixo de −20%.
+              {classified === 0
+                ? 'Abra Mercado, escolha uma ação ou FII e informe os fundamentos. A cotação vem da brapi; a régua é Graham para ações e P/VP para FIIs.'
+                : `Os ${classified} ativos classificados estão em outras faixas. Barato é margem acima de 20%; caro, abaixo de −20%.`}
             </p>
+            {classified === 0 && (
+              <button className="button" type="button" onClick={() => setTab('mercado')}>
+                Ver mercado
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -146,13 +183,14 @@ export default function ScreenerPage() {
         API não devolve LPA nem VP, e nada aqui é estimado. Isto não é recomendação de investimento.
       </p>
 
-      {/* Botão flutuante: alcance do polegar no celular. */}
-      {total > 0 && (
+      {/* Flutuante só fora do Mercado: lá cada linha já tem o próprio "+", e o
+          botão cobria justamente a coluna de ação das linhas. */}
+      {tab !== 'mercado' && (
         <button
           className="fab"
           type="button"
-          onClick={() => setPickerOpen(true)}
-          aria-label="Adicionar ativo à triagem"
+          onClick={() => openPicker(null)}
+          aria-label="Buscar ativo para adicionar à triagem"
         >
           +
         </button>
@@ -176,7 +214,14 @@ export default function ScreenerPage() {
               exit={reduce ? undefined : { y: '100%' }}
               transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
             >
-              <TickerPicker onAdd={addToWatchlist} onClose={() => setPickerOpen(false)} />
+              <TickerPicker
+                preselected={picking}
+                onAdd={async (item) => {
+                  await addToWatchlist(item)
+                  setLastAdded(item.ticker.trim().toUpperCase())
+                }}
+                onClose={() => setPickerOpen(false)}
+              />
             </motion.div>
           </>
         )}

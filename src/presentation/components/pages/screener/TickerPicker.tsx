@@ -10,6 +10,8 @@ import { useTickerSearch } from '../../../hooks/useTickerSearch'
 interface TickerPickerProps {
   onAdd: (item: NewWatchlistItem) => Promise<void>
   onClose: () => void
+  /** Já escolhido na lista de mercado: pula direto para os fundamentos. */
+  preselected?: UniverseAsset | null
 }
 
 const FILTERS: { label: string; type?: AssetType }[] = [
@@ -21,10 +23,10 @@ const FILTERS: { label: string; type?: AssetType }[] = [
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
-export default function TickerPicker({ onAdd, onClose }: TickerPickerProps) {
+export default function TickerPicker({ onAdd, onClose, preselected }: TickerPickerProps) {
   const [term, setTerm] = useState('')
   const [filter, setFilter] = useState<AssetType | undefined>(undefined)
-  const [picked, setPicked] = useState<UniverseAsset | null>(null)
+  const [picked, setPicked] = useState<UniverseAsset | null>(preselected ?? null)
   const [eps, setEps] = useState('')
   const [growth, setGrowth] = useState('')
   const [book, setBook] = useState('')

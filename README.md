@@ -107,9 +107,17 @@ A infra implementa as portas do domínio e é ligada em `composition/container.t
 
 ## Triagem: barato ou caro
 
-Aba `/triagem`. Classifica ações e FIIs em **barato / justo / caro** por margem de
-segurança: acima de +20% é barato, abaixo de −20% é caro, o meio é justo — a faixa
-do meio depende demais das premissas do modelo para virar recomendação.
+Aba `/triagem`, com duas partes:
+
+- **Mercado** — abre já preenchida com o catálogo real da B3 vindo da API: ticker,
+  nome, preço e variação do dia, filtrável por Ações / FIIs / BDRs e pesquisável
+  por ticker ou nome. É daqui que se escolhe o que acompanhar.
+- **Baratos / Justos / Caros / Pendentes** — a classificação dos ativos que você
+  escolheu e para os quais informou os fundamentos.
+
+A classificação usa a margem de segurança: acima de +20% é barato, abaixo de −20%
+é caro, o meio é justo — a faixa do meio depende demais das premissas do modelo
+para virar recomendação.
 
 Cada tipo usa a régua própria:
 
