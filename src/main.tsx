@@ -1,5 +1,14 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+
+/* Três papéis tipográficos: serifa para VALOR (juízo), mono para PREÇO (feed),
+   grotesca para a interface. Auto-hospedados — sem CDN em runtime. */
+import '@fontsource-variable/newsreader'
+import '@fontsource-variable/newsreader/standard-italic.css'
+import '@fontsource-variable/archivo'
+import '@fontsource/ibm-plex-mono/400.css'
+import '@fontsource/ibm-plex-mono/500.css'
+
 import './presentation/resources/styles/global.css'
 import App from './App.tsx'
 import MissingClerkKey from './presentation/components/auth/MissingClerkKey.tsx'
