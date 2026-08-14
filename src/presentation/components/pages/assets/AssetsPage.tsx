@@ -1,208 +1,197 @@
-import { Asset } from '../../../../domain/asset/entity'
-import { ASSET_TYPE_LABELS, CURRENCY_SYMBOLS, type AssetType } from '../../../../domain/asset/type'
-import { Portfolio, PortfolioItem } from '../../../../domain/portfolio/entity'
-import { DcfModel, type DcfInput } from '../../../../domain/valuation/models/dcf'
-import { GrahamModel, type GrahamInput } from '../../../../domain/valuation/models/graham'
-import { calculateSafetyMargin } from '../../../../domain/valuation/models/safety-margin'
+import { ASSET_TYPE_LABELS, CURRENCY_SYMBOLS, type AssetType, type Currency } from '../../../../domain/asset/type'
+import { usePortfolio } from '../../../hooks/usePortfolio'
+import AddPositionForm from './AddPositionForm'
 
-interface AssetRow {
-  asset: Asset
-  quantity: number
-  averagePrice: number
-  invested: number
-  currentValue: number | null
-  profit: number | null
-  profitPercent: number | null
-  fairValue: number | null
-  safetyMargin: number | null
+const formatters: Record<Currency, Intl.NumberFormat> = {
+  BRL: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }),
+  USD: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }),
 }
 
-const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-
-function buildPortfolio(): Portfolio {
-  const petro = new Asset({ id: '1', ticker: 'PETR4', name: 'Petrobras PN', type: 'stock', currency: 'BRL', sector: 'Petróleo' })
-  petro.updateQuote({ price: 42.15, currency: 'BRL', asOf: new Date().toISOString() })
-
-  const vale = new Asset({ id: '2', ticker: 'VALE3', name: 'Vale ON', type: 'stock', currency: 'BRL', sector: 'Mineração' })
-  vale.updateQuote({ price: 58.9, currency: 'BRL', asOf: new Date().toISOString() })
-
-  const itau = new Asset({ id: '3', ticker: 'ITUB4', name: 'Itaú Unibanco PN', type: 'stock', currency: 'BRL', sector: 'Bancos' })
-  itau.updateQuote({ price: 34.72, currency: 'BRL', asOf: new Date().toISOString() })
-
-  const hglg = new Asset({ id: '4', ticker: 'HGLG11', name: 'CSHG Logística FII', type: 'fii', currency: 'BRL', sector: 'Logística' })
-  hglg.updateQuote({ price: 152.4, currency: 'BRL', asOf: new Date().toISOString() })
-
-  const bova = new Asset({ id: '5', ticker: 'BOVA11', name: 'iShares Ibovespa ETF', type: 'etf', currency: 'BRL', sector: 'Índices' })
-  bova.updateQuote({ price: 129.8, currency: 'BRL', asOf: new Date().toISOString() })
-
-  const selic = new Asset({ id: '6', ticker: 'SELIC', name: 'Tesouro Selic 2029', type: 'treasury', currency: 'BRL', sector: 'Renda Fixa' })
-  selic.updateQuote({ price: 11_452.03, currency: 'BRL', asOf: new Date().toISOString() })
-
-  const portfolio = new Portfolio({ id: 'p1', userId: 'u1', name: 'Carteira Principal' })
-  portfolio.addItem(new PortfolioItem({ asset: petro, quantity: 100, averagePrice: 38.2, acquiredAt: '2024-03-10' }))
-  portfolio.addItem(new PortfolioItem({ asset: vale, quantity: 80, averagePrice: 62.1, acquiredAt: '2024-05-22' }))
-  portfolio.addItem(new PortfolioItem({ asset: itau, quantity: 120, averagePrice: 29.85, acquiredAt: '2024-08-01' }))
-  portfolio.addItem(new PortfolioItem({ asset: hglg, quantity: 10, averagePrice: 165.5, acquiredAt: '2023-11-14' }))
-  portfolio.addItem(new PortfolioItem({ asset: bova, quantity: 30, averagePrice: 118.4, acquiredAt: '2024-02-05' }))
-  portfolio.addItem(new PortfolioItem({ asset: selic, quantity: 1, averagePrice: 10_980.0, acquiredAt: '2024-01-20' }))
-  return portfolio
+function money(value: number | null | undefined, currency: Currency = 'BRL'): string {
+  return value == null ? '—' : formatters[currency].format(value)
 }
 
-const graham = new GrahamModel()
-const dcf = new DcfModel()
-
-const FUNDAMENTALS: Partial<Record<string, { eps: number; growth: number } | { fcf: number; shares: number; growth: number }>> = {
-  PETR4: { eps: 7.9, growth: 6 },
-  VALE3: { eps: 6.4, growth: 5 },
-  ITUB4: { eps: 3.1, growth: 9 },
+function percent(value: number | null | undefined, digits = 2): string {
+  return value == null ? '—' : `${value.toFixed(digits)}%`
 }
 
-function fairValueFor(asset: Asset): number | null {
-  const fundamentals = FUNDAMENTALS[asset.ticker]
-  const price = asset.currentPrice
-  if (!fundamentals || price == null) return null
-
-  if ('eps' in fundamentals) {
-    const input: GrahamInput = {
-      marketPrice: price,
-      earningsPerShare: fundamentals.eps,
-      growthPercent: fundamentals.growth,
-    }
-    return graham.evaluate(input).fairValue
-  }
-
-  const input: DcfInput = {
-    marketPrice: price,
-    freeCashFlow: fundamentals.fcf,
-    sharesOutstanding: fundamentals.shares,
-    growthRate: fundamentals.growth,
-    discountRate: 0.11,
-    terminalGrowthRate: 0.03,
-  }
-  return dcf.evaluate(input).fairValue
+function signClass(value: number | null | undefined): string {
+  if (value == null) return ''
+  return value >= 0 ? 'positive' : 'negative'
 }
 
 export default function AssetsPage() {
-  const portfolio = buildPortfolio()
+  const { view, loading, error, refresh, addPosition, removePosition } = usePortfolio()
 
-  const rows: AssetRow[] = portfolio.allItems.map((item) => {
-    const currentValue = item.currentValue
-    const fairValue = fairValueFor(item.asset)
-    const marketPrice = item.asset.currentPrice
-
-    return {
-      asset: item.asset,
-      quantity: item.quantity,
-      averagePrice: item.averagePrice,
-      invested: item.invested,
-      currentValue,
-      profit: item.profit,
-      profitPercent: item.profitPercent,
-      fairValue,
-      safetyMargin:
-        fairValue != null && marketPrice != null
-          ? calculateSafetyMargin(fairValue, marketPrice)
-          : null,
-    }
-  })
-
-  const totalInvested = portfolio.totalInvested
-  const totalValue = portfolio.totalCurrentValue
-  const totalProfit = portfolio.totalProfit
-  const totalProfitPercent = portfolio.totalProfitPercent
-  const allocation = portfolio.allocationByType()
+  const portfolio = view?.portfolio
+  const rows = view?.rows ?? []
+  const totalInvested = portfolio?.totalInvested ?? 0
+  const totalValue = portfolio?.totalCurrentValue ?? null
+  const totalProfit = portfolio?.totalProfit ?? null
+  const totalProfitPercent = portfolio?.totalProfitPercent ?? null
+  const allocation = portfolio?.allocationByType() ?? {}
 
   return (
     <div className="page">
+      {error && (
+        <div className="alert alert-error">
+          <span>{error}</span>
+          <button className="button button-ghost" type="button" onClick={refresh}>
+            Tentar novamente
+          </button>
+        </div>
+      )}
+
+      {view != null && view.quoteErrors.length > 0 && (
+        <div className="alert alert-warning">
+          <strong>Algumas cotações não foram carregadas:</strong>
+          <ul className="alert-list">
+            {view.quoteErrors.map((quoteError) => (
+              <li key={quoteError.ticker}>
+                <code>{quoteError.ticker}</code> — {quoteError.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <section className="summary-grid">
         <article className="card">
           <span className="card-label">Total investido</span>
-          <strong className="card-value">{brl.format(totalInvested)}</strong>
+          <strong className="card-value">{money(totalInvested)}</strong>
         </article>
         <article className="card">
           <span className="card-label">Valor atual</span>
-          <strong className="card-value">
-            {totalValue == null ? '—' : brl.format(totalValue)}
-          </strong>
+          <strong className="card-value">{money(totalValue)}</strong>
         </article>
         <article className="card">
           <span className="card-label">Resultado</span>
-          <strong className={`card-value${totalProfit != null && totalProfit >= 0 ? ' positive' : ' negative'}`}>
-            {totalProfit == null ? '—' : `${brl.format(totalProfit)} (${totalProfitPercent?.toFixed(2)}%)`}
+          <strong className={`card-value ${signClass(totalProfit)}`}>
+            {totalProfit == null ? '—' : `${money(totalProfit)} (${percent(totalProfitPercent)})`}
           </strong>
         </article>
         <article className="card">
           <span className="card-label">Alocação por tipo</span>
-          <div className="allocation">
-            {(Object.entries(allocation) as [AssetType, number][])
-              .sort((a, b) => b[1] - a[1])
-              .map(([type, pct]) => (
-                <div key={type} className="allocation-row">
-                  <span>{ASSET_TYPE_LABELS[type]}</span>
-                  <div className="allocation-bar">
-                    <div className="allocation-fill" style={{ width: `${pct}%` }} />
+          {Object.keys(allocation).length === 0 ? (
+            <span className="muted">Sem posições</span>
+          ) : (
+            <div className="allocation">
+              {(Object.entries(allocation) as [AssetType, number][])
+                .sort((a, b) => b[1] - a[1])
+                .map(([type, pct]) => (
+                  <div key={type} className="allocation-row">
+                    <span>{ASSET_TYPE_LABELS[type]}</span>
+                    <div className="allocation-bar">
+                      <div className="allocation-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                    <strong>{pct.toFixed(1)}%</strong>
                   </div>
-                  <strong>{pct.toFixed(1)}%</strong>
-                </div>
-              ))}
-          </div>
+                ))}
+            </div>
+          )}
         </article>
       </section>
 
       <section className="card">
         <div className="table-header">
           <h2>Ativos</h2>
-          <span className="table-count">{rows.length} posições</span>
+          <div className="table-actions">
+            <span className="table-count">
+              {loading ? 'Carregando cotações…' : `${rows.length} ${rows.length === 1 ? 'posição' : 'posições'}`}
+            </span>
+            <button className="button button-ghost" type="button" onClick={refresh} disabled={loading}>
+              Atualizar
+            </button>
+          </div>
         </div>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Ativo</th>
-                <th>Tipo</th>
-                <th>Qtde</th>
-                <th>Preço médio</th>
-                <th>Preço atual</th>
-                <th>Investido</th>
-                <th>Valor atual</th>
-                <th>P/L</th>
-                <th>Valor justo</th>
-                <th>Margem de segurança</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.asset.id}>
-                  <td>
-                    <div className="asset-cell">
-                      <strong>{row.asset.ticker}</strong>
-                      <span>{row.asset.name}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="badge">{ASSET_TYPE_LABELS[row.asset.type]}</span>
-                  </td>
-                  <td>{row.quantity}</td>
-                  <td>{brl.format(row.averagePrice)}</td>
-                  <td>{row.asset.currentPrice == null ? '—' : brl.format(row.asset.currentPrice)}</td>
-                  <td>{brl.format(row.invested)}</td>
-                  <td>{row.currentValue == null ? '—' : brl.format(row.currentValue)}</td>
-                  <td className={row.profit != null && row.profit >= 0 ? 'positive' : 'negative'}>
-                    {row.profit == null ? '—' : `${row.profitPercent?.toFixed(2)}%`}
-                  </td>
-                  <td>{row.fairValue == null ? '—' : brl.format(row.fairValue)}</td>
-                  <td className={row.safetyMargin != null && row.safetyMargin >= 0 ? 'positive' : 'negative'}>
-                    {row.safetyMargin == null ? '—' : `${(row.safetyMargin * 100).toFixed(1)}%`}
-                  </td>
+
+        {rows.length === 0 ? (
+          <p className="muted empty-state">
+            {loading
+              ? 'Carregando…'
+              : 'Nenhuma posição cadastrada. Adicione um ativo abaixo para buscar a cotação na brapi.'}
+          </p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Ativo</th>
+                  <th>Tipo</th>
+                  <th>Qtde</th>
+                  <th>Preço médio</th>
+                  <th>Preço atual</th>
+                  <th>Dia</th>
+                  <th>Investido</th>
+                  <th>Valor atual</th>
+                  <th>P/L</th>
+                  <th>Valor justo</th>
+                  <th>Margem de segurança</th>
+                  <th aria-label="Ações" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const currency = row.quote?.currency ?? row.position.currency
+                  const invested = row.position.quantity * row.position.averagePrice
+                  const currentValue = row.quote == null ? null : row.position.quantity * row.quote.price
+                  const profit = currentValue == null ? null : currentValue - invested
+                  const profitPercent = profit == null || invested === 0 ? null : (profit / invested) * 100
+
+                  return (
+                    <tr key={row.position.id}>
+                      <td>
+                        <div className="asset-cell">
+                          <strong>{row.asset.ticker}</strong>
+                          <span>{row.quoteError ?? row.asset.name}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="badge">{ASSET_TYPE_LABELS[row.asset.type]}</span>
+                      </td>
+                      <td>{row.position.quantity}</td>
+                      <td>{money(row.position.averagePrice, currency)}</td>
+                      <td>{money(row.quote?.price, currency)}</td>
+                      <td className={signClass(row.quote?.changePercent)}>
+                        {percent(row.quote?.changePercent)}
+                      </td>
+                      <td>{money(invested, currency)}</td>
+                      <td>{money(currentValue, currency)}</td>
+                      <td className={signClass(profit)}>{percent(profitPercent)}</td>
+                      <td>{money(row.fairValue, currency)}</td>
+                      <td className={signClass(row.safetyMargin)}>
+                        {row.safetyMargin == null ? '—' : `${(row.safetyMargin * 100).toFixed(1)}%`}
+                      </td>
+                      <td>
+                        <button
+                          className="button button-ghost"
+                          type="button"
+                          onClick={() => void removePosition(row.position.id)}
+                          aria-label={`Remover ${row.asset.ticker}`}
+                        >
+                          Remover
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
+      <AddPositionForm onSubmit={addPosition} />
+
       <footer className="quote-note">
-        Cotações de exemplo em {CURRENCY_SYMBOLS.BRL} para fins de demonstração. Valores justos calculados com os modelos Graham e DCF do domínio.
+        Cotações em {CURRENCY_SYMBOLS.BRL} fornecidas pela{' '}
+        <a href="https://brapi.dev" target="_blank" rel="noreferrer">
+          brapi
+        </a>
+        {view?.lastUpdatedAt != null &&
+          ` — atualizado às ${new Date(view.lastUpdatedAt).toLocaleTimeString('pt-BR')}`}
+        . Valor justo pelo modelo de Graham, calculado apenas para posições com LPA e crescimento
+        informados.
       </footer>
     </div>
   )

@@ -369,3 +369,90 @@ body {
   outline: none;
   border-color: var(--accent);
 }
+
+.button {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.15s, background 0.15s;
+}
+
+.button:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.button-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-muted);
+  padding: 6px 12px;
+}
+
+.button-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.alert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 13px;
+  background: var(--bg-elevated);
+}
+
+.alert-error {
+  border-left-color: var(--negative);
+  color: var(--negative);
+}
+
+.alert-warning {
+  border-left-color: #f0a132;
+  color: var(--text);
+}
+
+.alert-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+}
+
+.alert-list code {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.alert .button {
+  align-self: flex-start;
+}
+
+.empty-state {
+  margin: 0;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.quote-note a {
+  color: var(--accent);
+}
