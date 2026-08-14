@@ -103,6 +103,30 @@ src/
 A dependência aponta sempre para dentro: `presentation → application → domain`.
 A infra implementa as portas do domínio e é ligada em `composition/container.ts`.
 
+## Direção visual
+
+Painel de instrumento de precisão, não dashboard genérico.
+
+- **Cor**: tinta gráfica quente (`#14161A`), papel (`#EDE8DF`) e **latão**
+  (`#C89B3F`) como cromo de instrumento — calibradores e balanças são de latão.
+  Jade e vermelhão são semânticos (ganho/perda), nunca decorativos.
+- **Tipografia**, com divisão semântica: **Newsreader** (serifa) carrega *valor*
+  — juízo humano: valor justo, margem de segurança, veredicto. **IBM Plex Mono**
+  carrega *preço* — o feed de máquina: tickers e cotações. **Archivo** faz a
+  interface. Preço e valor têm vozes diferentes de propósito.
+- **Assinatura**: o `SafetyGauge`. Régua com traços, datum de latão no custo,
+  ponteiro no mercado e a folga até o valor justo anotada como **linha de cota**
+  (notação de desenho técnico para medir um vão). Preencher esse vão com hachura
+  fazia o instrumento parecer poste de barbeiro — a cota é mais precisa e calada.
+- **Escala compartilhada**: na lista, todas as linhas usam a mesma régua
+  (`buildSharedScale`). Com escala própria, uma queda de 8% desenharia a mesma
+  barra que uma alta de 17%. Os datums também alinham em coluna.
+- **Movimento** (`motion`): sequência de entrada escalonada, ponteiro em mola
+  sub-amortecida que passa do ponto e assenta, totalizadores contando. Tudo
+  respeita `prefers-reduced-motion`.
+
+Fontes são auto-hospedadas via `@fontsource` — sem CDN em runtime.
+
 ## Scripts
 
 | Script            | Descrição                        |
