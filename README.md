@@ -82,13 +82,15 @@ de forma isolada sem derrubar a carteira.
 ```
 src/
   domain/         regras de negócio e portas (sem dependência de framework)
-    asset/        Asset, AssetQuote, QuoteProvider (porta), AssetRepository
+    asset/        Asset, AssetQuote, QuoteProvider, AssetUniverseProvider
     portfolio/    Portfolio, PortfolioItem, Position, PositionRepository
+    watchlist/    WatchlistItem, WatchlistRepository
     user/         User (identidade gerenciada pelo Clerk)
-    valuation/    Graham, DCF, margem de segurança
+    valuation/    Graham, DCF, P/VP, margem de segurança
     errors/       DomainError e subclasses
   application/    casos de uso que orquestram domínio + portas
     portfolio/    LoadPortfolio (posições + cotações + valuation)
+    screener/     ScreenWatchlist (barato / justo / caro)
   infra/          implementações concretas das portas
     http/         HttpClient, HttpError, NetworkError
     brapi/        BrapiQuoteProvider + tipos da resposta da API
@@ -102,6 +104,57 @@ src/
 
 A dependência aponta sempre para dentro: `presentation → application → domain`.
 A infra implementa as portas do domínio e é ligada em `composition/container.ts`.
+
+## Triagem: barato ou caro
+
+Aba `/triagem`. Classifica ações e FIIs em **barato / justo / caro** por margem de
+segurança: acima de +20% é barato, abaixo de −20% é caro, o meio é justo — a faixa
+do meio depende demais das premissas do modelo para virar recomendação.
+
+Cada tipo usa a régua própria:
+
+| Ativo | Modelo | Entrada |
+| ----- | ------ | ------- |
+| Ação, BDR | Graham | LPA + crescimento (0–50%) |
+| FII, REIT | P/VP | valor patrimonial por cota |
+
+Graham parte de lucro por ação e não se aplica a fundo imobiliário; para FII o
+referencial é o patrimônio, e negociar abaixo do VP é o desconto.
+
+**Os fundamentos são informados por você.** O plano da brapi não devolve LPA, VP
+nem P/L — verifiquei: `fundamental=true` não acrescenta campo, e os `modules`
+(`defaultKeyStatistics`, `financialData`) são ignorados silenciosamente. Então o
+que falta é dito na aba "Pendentes" em vez de estimado. Nada aqui é recomendação
+de investimento.
+
+### Uma requisição precifica a lista inteira
+
+O catálogo vem de `GET /quote/list`, que devolve ~2000 ativos numa chamada e **não
+sofre o limite de 1 símbolo por requisição** que vale no `/quote`. Por isso
+`BrapiUniverseProvider.pricesFor()` precifica uma lista de dezenas de tickers com
+uma única ida à rede, em vez de uma por ativo. O catálogo fica em cache por 2
+minutos.
+
+A busca de ativos usa o `search=` do mesmo endpoint, então o seletor pesquisa o
+catálogo real da B3 (744 ações, 593 FIIs, 663 BDRs) por ticker ou nome.
+
+> Ressalva de dados: a brapi classifica ETF como `fund`, o mesmo tipo dos FIIs.
+> Um ETF adicionado à triagem cai como FII e recebe P/VP, que não é a régua certa
+> para ele. É a taxonomia da API, não do domínio.
+
+## Mobile first
+
+O CSS parte do celular: uma coluna, barra de abas fixa na base (alcance do
+polegar), alvos de toque de 44px, `env(safe-area-inset-bottom)` para o iOS e
+campos com 16px de fonte para o Safari não dar zoom no foco. As media queries só
+**somam** a partir de 600px e 960px — não há nenhuma `max-width` corrigindo o
+desktop para baixo.
+
+A navegação é a mesma marcação nos dois formatos: abas na base no celular, coluna
+lateral a partir de 960px. Quem decide é o CSS, não o JavaScript.
+
+Verificado em iframes de 390px e 430px (a janela do Chrome não desce abaixo de
+~1000px, então o iframe é o jeito honesto de testar as media queries).
 
 ## Direção visual
 
