@@ -1,5 +1,5 @@
 import { Asset } from '../../domain/asset/entity'
-import type { AssetRepository } from '../../domain/asset/IRepository'
+import type { AssetRepository } from '../../domain/asset/repository'
 import type { AssetSnapshot } from '../../domain/asset/type'
 import type { HttpClient } from '../http/client'
 
