@@ -7,10 +7,14 @@
     "skipLibCheck": true,
 
     /* Bundler mode */
-    "module": "nodenext",
+    /* O servidor roda via tsx, que resolve como bundler: sem extensão nos
+       imports relativos. Casa com o tsconfig.app e evita `.ts` nos imports. */
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
+    "strict": true,
     "noEmit": true,
 
     /* Linting */
@@ -19,5 +23,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "server/**/*.ts", "src/domain/**/*.ts"]
 }
