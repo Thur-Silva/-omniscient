@@ -1,37 +1,55 @@
 import { LoadPortfolio } from '../application/portfolio/load-portfolio'
+import { ScreenWatchlist } from '../application/screener/screen-watchlist'
 import type { QuoteProvider } from '../domain/asset/quote-provider'
+import type { AssetUniverseProvider } from '../domain/asset/universe'
 import type { PositionRepository } from '../domain/portfolio/repository'
+import type { WatchlistRepository } from '../domain/watchlist/repository'
 import { BrapiQuoteProvider } from '../infra/brapi/quote-provider'
+import { BrapiUniverseProvider } from '../infra/brapi/universe-provider'
 import { appConfig } from '../infra/config/env'
 import { HttpClient } from '../infra/http/client'
 import { LocalStoragePositionRepository } from '../infra/repository/position'
+import { LocalStorageWatchlistRepository } from '../infra/repository/watchlist'
 
 /**
  * Composition root: o único lugar que conhece as implementações concretas.
  * A camada de apresentação consome as portas, não a infra.
  */
 
-// O provedor de cotação não depende do usuário, então pode ser compartilhado.
+// Provedores da brapi não dependem do usuário, então são compartilhados. O
+// catálogo devolve 2000 itens por requisição, daí o timeout mais folgado.
 const brapiHttp = new HttpClient({
   baseUrl: appConfig.brapiBaseUrl,
   timeoutMs: 15_000,
 })
 
-export const quoteProvider: QuoteProvider = new BrapiQuoteProvider(brapiHttp)
+const universeHttp = new HttpClient({
+  baseUrl: appConfig.brapiBaseUrl,
+  timeoutMs: 25_000,
+})
 
-export interface PortfolioServices {
+export const quoteProvider: QuoteProvider = new BrapiQuoteProvider(brapiHttp)
+export const universeProvider: AssetUniverseProvider = new BrapiUniverseProvider(universeHttp)
+
+export interface UserServices {
   positionRepository: PositionRepository
+  watchlistRepository: WatchlistRepository
   loadPortfolio: LoadPortfolio
+  screenWatchlist: ScreenWatchlist
 }
 
 /**
- * A carteira é por usuário (id vindo do Clerk), então estes serviços são
- * construídos por sessão em vez de no carregamento do módulo.
+ * Carteira e lista de observação são por usuário (id vindo do Clerk), então estes
+ * serviços são construídos por sessão em vez de no carregamento do módulo.
  */
-export function createPortfolioServices(userId: string): PortfolioServices {
+export function createUserServices(userId: string): UserServices {
   const positionRepository = new LocalStoragePositionRepository(userId)
+  const watchlistRepository = new LocalStorageWatchlistRepository(userId)
+
   return {
     positionRepository,
+    watchlistRepository,
     loadPortfolio: new LoadPortfolio(positionRepository, quoteProvider),
+    screenWatchlist: new ScreenWatchlist(watchlistRepository, universeProvider),
   }
 }

@@ -1,7 +1,7 @@
 import { useAuth } from '@clerk/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PortfolioView } from '../../application/portfolio/load-portfolio'
-import { createPortfolioServices } from '../../composition/container'
+import { createUserServices } from '../../composition/container'
 import type { NewPosition } from '../../domain/portfolio/position'
 
 export interface UsePortfolioResult {
@@ -26,7 +26,7 @@ export function usePortfolio(): UsePortfolioResult {
 
   // Recria os serviços quando o usuário muda, para não vazar a carteira de uma
   // conta para outra ao trocar de sessão no mesmo navegador.
-  const services = useMemo(() => (userId ? createPortfolioServices(userId) : null), [userId])
+  const services = useMemo(() => (userId ? createUserServices(userId) : null), [userId])
 
   const load = useCallback(async () => {
     requestRef.current?.abort()

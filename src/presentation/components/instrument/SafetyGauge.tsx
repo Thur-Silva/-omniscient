@@ -10,6 +10,15 @@ export interface SafetyGaugeProps {
   fairValue?: number | null
   size?: 'hero' | 'row'
   /**
+   * De que lado do datum está a boa notícia.
+   *
+   * `gain` (padrão): o datum é o custo, e acima dele é lucro — o caso da carteira.
+   * `discount`: o datum é o valor justo, e abaixo dele é desconto — o caso da
+   * triagem. Sem esta distinção uma ação barata apareceria com barra vermelha,
+   * contradizendo o próprio veredicto do cartão.
+   */
+  polarity?: 'gain' | 'discount'
+  /**
    * Escala imposta de fora. Numa lista de posições os instrumentos ficam lado a
    * lado e convidam à comparação, então todos precisam da mesma régua — com
    * escala própria uma queda de 8% desenharia a mesma barra que uma alta de 17%.
@@ -37,6 +46,7 @@ export default function SafetyGauge({
   marketValue,
   fairValue,
   size = 'hero',
+  polarity = 'gain',
   domain,
   label,
 }: SafetyGaugeProps) {
@@ -55,7 +65,8 @@ export default function SafetyGauge({
   const marketAt = ratio(marketPct, scale)
   const fairAt = fairPct == null ? null : ratio(fairPct, scale)
 
-  const gainPositive = marketPct >= 0
+  // Favorável = a leitura que o usuário quer ver, conforme a polaridade.
+  const favourable = polarity === 'discount' ? marketPct <= 0 : marketPct >= 0
   const clearance = fairPct == null ? null : fairPct - marketPct
 
   const majors: number[] = []
@@ -108,7 +119,7 @@ export default function SafetyGauge({
         {/* Trilho e magnitude do retorno */}
         <div className="gauge-rail">
           <motion.div
-            className={`gauge-band ${gainPositive ? 'is-up' : 'is-down'}`}
+            className={`gauge-band ${favourable ? 'is-up' : 'is-down'}`}
             style={{ left: `${Math.min(datumAt, marketAt)}%` }}
             initial={{ width: 0 }}
             animate={{ width: `${Math.abs(marketAt - datumAt)}%` }}
@@ -130,7 +141,7 @@ export default function SafetyGauge({
 
         {/* Ponteiro sobre o trilho, com cabeça apontando para baixo */}
         <motion.span
-          className={`gauge-needle ${gainPositive ? 'is-up' : 'is-down'}`}
+          className={`gauge-needle ${favourable ? 'is-up' : 'is-down'}`}
           initial={reduce ? { left: `${marketAt}%` } : { left: `${datumAt}%` }}
           animate={{ left: `${marketAt}%` }}
           transition={spring}
