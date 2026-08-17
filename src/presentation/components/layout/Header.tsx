@@ -6,6 +6,7 @@ import { useCurrentUser } from '../../hooks/useCurrentUser'
 const SECTION_TITLES: Record<string, string> = {
   '/': 'Visão geral da carteira',
   '/fiis': 'FIIs',
+  '/teto': 'Valuation de ações',
   '/triagem': 'Triagem',
   '/profile': 'Perfil',
   '/settings': 'Ajustes',

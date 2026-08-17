@@ -34,3 +34,37 @@ export interface StatusInvestFiiResponse {
   totalResults?: number
   hasForecast?: boolean
 }
+
+/**
+ * Item de CategoryType=1 (ações). Confirmado contra o serviço em 14/08/2026:
+ * 617 ações numa chamada.
+ *
+ * Não traz lucro líquido, payout nem número de ações diretamente — os três são
+ * derivados no provedor a partir de `lpa`, `dy`, `price` e `valormercado`.
+ */
+export interface StatusInvestStockItem {
+  ticker: string
+  companyname: string | null
+  price: number | null
+  /** Lucro por ação dos últimos 12 meses. */
+  lpa: number | null
+  /** Valor patrimonial por ação. */
+  vpa: number | null
+  /** Dividend yield em pontos percentuais: 3 significa 3%. */
+  dy: number | null
+  /** Retorno sobre patrimônio em pontos percentuais: 8.27 significa 8,27%. */
+  roe: number | null
+  p_l: number | null
+  p_vp: number | null
+  /** Capitalização de mercado em reais. */
+  valormercado: number | null
+  liquidezmediadiaria: number | null
+  sectorname: string | null
+  subsectorname: string | null
+  segmentname: string | null
+}
+
+export interface StatusInvestStockResponse {
+  list: StatusInvestStockItem[]
+  totalResults?: number
+}

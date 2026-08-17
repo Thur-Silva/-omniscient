@@ -1253,6 +1253,108 @@ body {
   color: var(--paper-dim);
 }
 
+/* ── Preço teto: premissas e memória de cálculo ─────────────────────────── */
+
+/* Marcador de procedência: distingue o que veio da fonte do que falta digitar */
+.origin {
+  float: right;
+  font-style: normal;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  color: var(--graphite-dim);
+  border: 1px solid var(--rule-bright);
+  border-radius: 99px;
+  padding: 1px 6px;
+}
+
+.origin.is-manual {
+  color: var(--brass);
+  border-color: color-mix(in srgb, var(--brass) 45%, transparent);
+  background: var(--brass-soft);
+}
+
+/* Sufixo de unidade dentro do campo, para o número não precisar explicar-se */
+.field-affix {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.field-affix input {
+  padding-right: 46px;
+}
+
+.field-affix i {
+  position: absolute;
+  right: 12px;
+  font-style: normal;
+  font-family: var(--font-price);
+  font-size: 10.5px;
+  color: var(--graphite-dim);
+  pointer-events: none;
+}
+
+.calc-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px var(--pad-x);
+  border-bottom: 1px solid var(--rule);
+}
+
+.calc-row:last-child {
+  border-bottom: none;
+}
+
+.calc-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.calc-label small {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--graphite-dim);
+}
+
+.calc-value {
+  flex-shrink: 0;
+  font-size: 14px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Subtotais e total ganham peso: são as linhas que o leitor procura */
+.calc-row.is-subtotal {
+  background: var(--ink-sunken);
+}
+
+.calc-row.is-subtotal .calc-label {
+  font-variation-settings: 'wght' 600;
+}
+
+.calc-row.is-total {
+  background: var(--ink-sunken);
+  border-top: 1px solid var(--brass);
+}
+
+.calc-row.is-total .calc-label {
+  font-variation-settings: 'wght' 600;
+}
+
+/* O teto em serifa: é juízo de valor, não cotação */
+.calc-value.is-ceiling {
+  font-family: var(--font-value);
+  font-size: 22px;
+  font-variation-settings: 'wght' 500;
+  font-feature-settings: 'tnum' 1;
+  color: var(--brass);
+}
+
 /* ── Mercado: o catálogo real da B3, navegável ──────────────────────────── */
 
 .market {

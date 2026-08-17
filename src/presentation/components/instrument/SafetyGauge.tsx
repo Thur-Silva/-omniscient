@@ -19,6 +19,11 @@ export interface SafetyGaugeProps {
    */
   polarity?: 'gain' | 'discount'
   /**
+   * Rótulo do zero da escala. Muda com o que o datum representa: na carteira é o
+   * custo da posição, no valuation é o preço teto.
+   */
+  datumLabel?: string
+  /**
    * Escala imposta de fora. Numa lista de posições os instrumentos ficam lado a
    * lado e convidam à comparação, então todos precisam da mesma régua — com
    * escala própria uma queda de 8% desenharia a mesma barra que uma alta de 17%.
@@ -47,6 +52,7 @@ export default function SafetyGauge({
   fairValue,
   size = 'hero',
   polarity = 'gain',
+  datumLabel = 'custo',
   domain,
   label,
 }: SafetyGaugeProps) {
@@ -171,7 +177,7 @@ export default function SafetyGauge({
                 className={`gauge-label${tick === 0 ? ' is-datum' : ''}`}
                 style={{ left: `${ratio(tick, scale)}%` }}
               >
-                {tick === 0 ? 'custo' : formatSigned(tick, 0)}
+                {tick === 0 ? datumLabel : formatSigned(tick, 0)}
               </span>
             ))}
           </div>

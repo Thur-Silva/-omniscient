@@ -105,6 +105,64 @@ src/
 A dependência aponta sempre para dentro: `presentation → application → domain`.
 A infra implementa as portas do domínio e é ligada em `composition/container.ts`.
 
+## Preço teto de ações (`/teto`)
+
+Valuation por **fluxo de caixa descontado em duas fases** sobre o lucro líquido,
+conforme `src/docs/BBAS3.MD`.
+
+```
+g       = ROE × (1 − payout)              crescimento sustentável por retenção
+LL_n    = LL_0 × (1 + g)^n                n = 1..3
+VP_n    = LL_n / (1 + k)^n
+LL_4    = LL_3 × (1 + 3%)
+VT_3    = LL_4 / (k − 3%)                 modelo de Gordon
+VP_VT   = VT_3 / (1 + k)^3
+teto    = (ΣVP_n + VP_VT) / nº de ações
+```
+
+O fluxo descontado é o **lucro integral**, não o dividendo — o payout entra apenas
+na inclinação do crescimento. Descontar só o dividendo daria um número uma ordem
+de grandeza menor (R$ 5,99 contra R$ 19,06 no exemplo do BBAS3).
+
+Fixos: perpetuidade a **3% a.a.** e fase explícita de **3 anos**. Guardas de
+domínio recusam prejuízo, payout fora de 0–100%, ROE negativo, ações ≤ 0 e
+`k ≤ 3%` (que faria a perpetuidade explodir ou trocar de sinal).
+
+### Premissas preenchidas pela API
+
+O usuário edita cinco campos, todos já preenchidos. Só a taxa de desconto não tem
+origem em dado — retorno exigido é escolha do investidor.
+
+| Campo | Origem | BBAS3 | Cobertura |
+| --- | --- | --- | --- |
+| Lucro líquido inicial | `LPA × nº de ações` | R$ 15,359 bi | 399/617 |
+| Payout | `(DY × preço) / LPA` | 20,57% | 272/617 |
+| ROE | direto | 8,27% | 614/617 |
+| Taxa de desconto (k) | premissa, padrão 20% | 20% | — |
+| Nº de ações | `capitalização / preço` | 5.730.834.040 | 566/617 |
+
+O número de ações derivado bate **exatamente** com os 5.730.834.040 que o
+documento declara, o que valida a derivação.
+
+Cada campo mostra se veio da fonte ou precisa ser digitado, e 270 das 617 ações
+têm as quatro premissas completas — as demais pedem preenchimento. 218 estão sem
+lucro positivo, e para elas o modelo não se aplica.
+
+Os campos aceitam vírgula como separador decimal. Por isso são `type="text"` com
+`inputMode="decimal"`: um `type="number"` descarta a vírgula e esvazia o campo,
+que é justamente o gesto de quem digita em pt-BR.
+
+A tela mostra a memória de cálculo ano a ano, com a participação de cada fase, para
+o valuation ser auditável em vez de um número solto.
+
+> O documento fixa `LL_1 = 15,60`, `LL_2 = 18,00`, `LL_3 = 20,50` à mão, sem taxa
+> constante (0%, +15,38%, +13,89%), e não usa payout nem ROE. O sistema substitui
+> essa projeção manual por `g = ROE × (1 − payout)` aplicado desde o ano 1. A
+> máquina da perpetuidade reproduz o documento exatamente: ancorando `LL_3` em
+> 20,50, saem `LL_4 = 21,115`, `VT_3 = 124,21` e `VP_VT = 71,88`, iguais aos dele.
+> O teto difere (R$ 19,37 contra R$ 19,06) apenas porque o caminho dos anos 1 e 2
+> é outro.
+
 ## Oportunidades em FIIs (`/fiis`)
 
 Ranking automático do mercado inteiro — sem cadastrar nada. Abre já apurado.

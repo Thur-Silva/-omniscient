@@ -27,6 +27,16 @@ const NAV_ITEMS: { to: string; label: string; icon: ReactNode }[] = [
     ),
   },
   {
+    to: '/teto',
+    label: 'Teto',
+    icon: (
+      <>
+        <path d="M3 7h14" />
+        <path d="M6 11v5M10 11v5M14 11v5" />
+      </>
+    ),
+  },
+  {
     to: '/triagem',
     label: 'Triagem',
     icon: (

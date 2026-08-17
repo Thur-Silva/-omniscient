@@ -1,7 +1,9 @@
 import { FindFiiOpportunities } from '../application/fii/find-opportunities'
 import { LoadPortfolio } from '../application/portfolio/load-portfolio'
 import { ScreenWatchlist } from '../application/screener/screen-watchlist'
+import { EstimatePriceCeiling } from '../application/stock/price-ceiling'
 import { StatusInvestFiiProvider } from '../infra/statusinvest/fii-provider'
+import { StatusInvestStockProvider } from '../infra/statusinvest/stock-provider'
 import type { QuoteProvider } from '../domain/asset/quote-provider'
 import type { AssetUniverseProvider } from '../domain/asset/universe'
 import type { PositionRepository } from '../domain/portfolio/repository'
@@ -42,6 +44,11 @@ const fundamentalsHttp = new HttpClient({
 
 export const findFiiOpportunities = new FindFiiOpportunities(
   new StatusInvestFiiProvider(fundamentalsHttp),
+)
+
+// Ações saem do mesmo proxy, em outra categoria da busca avançada.
+export const estimatePriceCeiling = new EstimatePriceCeiling(
+  new StatusInvestStockProvider(fundamentalsHttp),
 )
 
 export interface UserServices {

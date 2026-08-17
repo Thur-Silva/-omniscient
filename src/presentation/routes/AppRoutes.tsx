@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom'
 import ProtectedRoute from '../components/auth/ProtectedRoute'
 import MainLayout from '../components/layout/Mainlayout'
 import AssetsPage from '../components/pages/assets/AssetsPage'
+import PriceCeilingPage from '../components/pages/ceiling/PriceCeilingPage'
 import SignInPage from '../components/pages/auth/SignInPage'
 import SignUpPage from '../components/pages/auth/SignUpPage'
 import OpportunitiesPage from '../components/pages/opportunities/OpportunitiesPage'
@@ -21,6 +22,7 @@ export default function AppRoutes() {
         <Route element={<MainLayout />}>
           <Route index element={<AssetsPage />} />
           <Route path="fiis" element={<OpportunitiesPage />} />
+          <Route path="teto" element={<PriceCeilingPage />} />
           <Route path="triagem" element={<ScreenerPage />} />
           <Route path="profile" element={<UserProfile />} />
           <Route path="settings" element={<SettingsPage />} />
