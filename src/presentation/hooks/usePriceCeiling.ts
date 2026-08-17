@@ -68,6 +68,25 @@ const GROWTH_FIELDS: { field: keyof CeilingForm; label: string }[] = [
 ]
 
 /**
+ * Campos de g deriváveis de ROE × (1 − payout). O usuário pode sobrescrever
+ * qualquer um deles; quem não foi sobrescrito acompanha o derivado quando ROE
+ * ou payout mudam.
+ */
+const DERIVED_GROWTH_FIELDS = ['growth1', 'growth2', 'growth3'] as const
+
+/**
+ * O g derivado de ROE × (1 − payout), no mesmo formato de preenchimento dos
+ * campos. Devolve `null` quando ROE ou payout ainda não são números legíveis.
+ */
+function derivedGrowthText(roeRaw: string, payoutRaw: string): string | null {
+  const roe = parseDecimal(roeRaw)
+  const payout = parseDecimal(payoutRaw)
+  if (roe == null || payout == null) return null
+  const growth = (roe / 100) * (1 - payout / 100)
+  return String(Number((growth * 100).toFixed(2)))
+}
+
+/**
  * Aceita vírgula como separador decimal: a interface é pt-BR e digitar "20,5"
  * é o gesto natural aqui.
  */
@@ -157,6 +176,8 @@ export function usePriceCeiling(): UsePriceCeilingResult {
   const [error, setError] = useState<string | null>(null)
   const searchRef = useRef<AbortController | null>(null)
   const selectRef = useRef<AbortController | null>(null)
+  /** Anos cujo g o usuário digitou à mão: esses não acompanham ROE × (1 − payout). */
+  const manualGrowth = useRef<Set<keyof CeilingForm>>(new Set())
 
   useEffect(() => {
     const needle = term.trim()
@@ -216,6 +237,7 @@ export function usePriceCeiling(): UsePriceCeilingResult {
         return
       }
       setSelected(prefilled)
+      manualGrowth.current.clear()
       setForm(toForm(prefilled.assumptions))
       setResults([])
       setTerm('')
@@ -229,16 +251,41 @@ export function usePriceCeiling(): UsePriceCeilingResult {
   }, [])
 
   const setField = useCallback((field: keyof CeilingForm, value: string) => {
+    // Digitar num campo de g é sobrescrita explícita: a partir daí ele para de
+    // acompanhar ROE × (1 − payout) e só volta com "Restaurar" ou nova busca.
+    if ((DERIVED_GROWTH_FIELDS as readonly string[]).includes(field)) {
+      manualGrowth.current.add(field)
+    }
     setForm((current) => ({ ...current, [field]: value }))
   }, [])
 
+  // g deriva de ROE × (1 − payout): quando ROE ou payout mudam, os campos de g
+  // que não foram sobrescritos à mão acompanham o novo derivado. Sem isto, o
+  // prefill antigo congelaria o g mesmo depois do usuário corrigir as premissas.
+  useEffect(() => {
+    if (selected == null) return
+    const growth = derivedGrowthText(form.returnOnEquity, form.payout)
+    if (growth == null) return
+    setForm((current) => {
+      let next: CeilingForm | null = null
+      for (const field of DERIVED_GROWTH_FIELDS) {
+        if (manualGrowth.current.has(field) || current[field] === growth) continue
+        next = next ?? current
+        next = { ...next, [field]: growth }
+      }
+      return next ?? current
+    })
+  }, [form.returnOnEquity, form.payout, selected])
+
   const clear = useCallback(() => {
+    manualGrowth.current.clear()
     setSelected(null)
     setForm(EMPTY_FORM)
     setError(null)
   }, [])
 
   const reset = useCallback(() => {
+    manualGrowth.current.clear()
     if (selected) setForm(toForm(selected.assumptions))
   }, [selected])
 
