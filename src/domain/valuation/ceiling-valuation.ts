@@ -27,7 +27,14 @@ export interface CeilingValuation {
 }
 
 export interface CeilingValuationRepository {
+  /**
+   * Grava (ou atualiza) o cálculo de um ativo: existe no máximo um registro por
+   * `userId` + `ticker`, então salvar de novo o mesmo ativo sobrescreve o
+   * anterior em vez de duplicar.
+   */
   save(record: Omit<CeilingValuation, 'id' | 'createdAt'>): Promise<CeilingValuation>
   /** Histórico do usuário, do cálculo mais recente para o mais antigo. */
-  list(userId: string): Promise<CeilingValuation[]>
+  list(userId: string, signal?: AbortSignal): Promise<CeilingValuation[]>
+  /** Um cálculo salvo do usuário; `null` quando não existe ou não é dele. */
+  get(id: string, userId: string, signal?: AbortSignal): Promise<CeilingValuation | null>
 }

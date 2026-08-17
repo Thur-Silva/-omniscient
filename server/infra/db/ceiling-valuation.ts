@@ -45,7 +45,8 @@ function toCeilingValuation(row: CeilingRow): CeilingValuation {
  *
  * O que o usuário calculou na tela fica registrado como estava: teto, margem,
  * premissas e memória de cálculo em `jsonb` — auditável depois, mesmo quando a
- * fonte já mudou.
+ * fonte já mudou. Um registro por `user_id` + `ticker`: o `on conflict`
+ * atualiza o existente em vez de criar uma linha nova.
  */
 export class PostgresCeilingValuationRepository implements CeilingValuationRepository {
   private readonly pool: Pool
@@ -59,6 +60,13 @@ export class PostgresCeilingValuationRepository implements CeilingValuationRepos
       `insert into ceiling_valuation
          (user_id, ticker, market_price, ceiling_price, safety_margin, assumptions, breakdown, created_at)
        values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, now())
+       on conflict (user_id, ticker) do update
+         set market_price  = excluded.market_price,
+             ceiling_price = excluded.ceiling_price,
+             safety_margin = excluded.safety_margin,
+             assumptions   = excluded.assumptions,
+             breakdown     = excluded.breakdown,
+             created_at    = excluded.created_at
        returning id, user_id, ticker, market_price, ceiling_price, safety_margin,
                  assumptions, breakdown, created_at`,
       [
@@ -74,7 +82,8 @@ export class PostgresCeilingValuationRepository implements CeilingValuationRepos
     return toCeilingValuation(rows[0])
   }
 
-  async list(userId: string): Promise<CeilingValuation[]> {
+  // O signal serve ao client HTTP; aqui a consulta é local e rápida.
+  async list(userId: string, _signal?: AbortSignal): Promise<CeilingValuation[]> {
     const { rows } = await this.pool.query<CeilingRow>(
       `select id, user_id, ticker, market_price, ceiling_price, safety_margin,
               assumptions, breakdown, created_at
@@ -84,5 +93,16 @@ export class PostgresCeilingValuationRepository implements CeilingValuationRepos
       [userId],
     )
     return rows.map(toCeilingValuation)
+  }
+
+  async get(id: string, userId: string, _signal?: AbortSignal): Promise<CeilingValuation | null> {
+    const { rows } = await this.pool.query<CeilingRow>(
+      `select id, user_id, ticker, market_price, ceiling_price, safety_margin,
+              assumptions, breakdown, created_at
+         from ceiling_valuation
+        where id = $1 and user_id = $2`,
+      [id, userId],
+    )
+    return rows[0] == null ? null : toCeilingValuation(rows[0])
   }
 }

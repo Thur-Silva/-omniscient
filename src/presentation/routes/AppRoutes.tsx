@@ -3,6 +3,7 @@ import ProtectedRoute from '../components/auth/ProtectedRoute'
 import MainLayout from '../components/layout/Mainlayout'
 import AssetsPage from '../components/pages/assets/AssetsPage'
 import PriceCeilingPage from '../components/pages/ceiling/PriceCeilingPage'
+import CeilingHistoryPage from '../components/pages/ceiling/CeilingHistoryPage'
 import StockOpportunitiesPage from '../components/pages/stocks/StockOpportunitiesPage'
 import SignInPage from '../components/pages/auth/SignInPage'
 import SignUpPage from '../components/pages/auth/SignUpPage'
@@ -25,6 +26,8 @@ export default function AppRoutes() {
           <Route path="fiis" element={<OpportunitiesPage />} />
           <Route path="acoes" element={<StockOpportunitiesPage />} />
           <Route path="teto" element={<PriceCeilingPage />} />
+          <Route path="teto/salvo/:id" element={<PriceCeilingPage />} />
+          <Route path="teto/historico" element={<CeilingHistoryPage />} />
           <Route path="triagem" element={<ScreenerPage />} />
           <Route path="profile" element={<UserProfile />} />
           <Route path="settings" element={<SettingsPage />} />

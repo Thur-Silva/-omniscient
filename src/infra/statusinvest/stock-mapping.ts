@@ -85,11 +85,21 @@ export function toStockFundamentals(item: StatusInvestStockItem): StockFundament
       : null
 
   const roe = toNumber(item.roe)
+  const revenueCagr5 = toNumber(item.receitas_cagr5)
+
+  /** Dividendo por ação dos 12 meses: o yield aplicado ao preço. */
+  const dividendPerShare =
+    dividendYield != null && dividendYield > 0 && price != null
+      ? (dividendYield / 100) * price
+      : null
 
   return {
     ticker: item.ticker.trim().toUpperCase(),
     name: item.companyname?.trim() ?? item.ticker,
     sector: item.segmentname?.trim() || item.sectorname?.trim() || null,
+    sectorName: item.sectorname?.trim() || null,
+    subsectorName: item.subsectorname?.trim() || null,
+    segmentName: item.segmentname?.trim() || null,
     price,
     netIncome,
     earningsPerShare: eps,
@@ -100,5 +110,9 @@ export function toStockFundamentals(item: StatusInvestStockItem): StockFundament
     bookValuePerShare: toNumber(item.vpa),
     priceToEarnings: toNumber(item.p_l),
     averageDailyLiquidity: toNumber(item.liquidezmediadiaria),
+    dividendYield: dividendYield != null ? dividendYield / 100 : null,
+    dividendPerShare,
+    // CAGR de receita também chega em pontos percentuais.
+    revenueCagr5: revenueCagr5 != null ? revenueCagr5 / 100 : null,
   }
 }

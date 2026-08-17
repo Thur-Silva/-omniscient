@@ -62,6 +62,8 @@ export interface StatusInvestStockItem {
   sectorname: string | null
   subsectorname: string | null
   segmentname: string | null
+  /** CAGR de receita em 5 anos, em pontos percentuais. */
+  receitas_cagr5: number | null
 }
 
 export interface StatusInvestStockResponse {

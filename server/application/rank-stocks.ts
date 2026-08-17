@@ -1,8 +1,11 @@
 import {
   normalizeDiscountRate,
+  normalizeRequiredYield,
   rankStocks,
+  type RankingMode,
   type StockRanking,
 } from '../../src/domain/stock/ranking'
+import { BAZIN_REQUIRED_YIELD } from '../../src/domain/valuation/models/bazin'
 import type { StockFundamentals } from '../../src/domain/stock/fundamentals'
 import {
   STOCK_PATH,
@@ -25,16 +28,30 @@ export interface ServedRanking {
 }
 
 /**
- * Chave do ranking no banco. O k entra na chave porque muda todo o resultado.
+ * Chave do ranking no banco.
+ *
+ * Tudo que muda o resultado entra na chave: `k` (taxa de desconto), `m` (a régua —
+ * por setor ou um método fixo) e `dy` (o yield exigido do Bazin). Chaves distintas
+ * significam registros distintos, cada um com a sua janela de 10 minutos, e todos
+ * alimentados pelo mesmo snapshot de fundamentos.
  *
  * `v` é a versão da metodologia: v1 somava colocação de margem com colocação de
- * P/L. Sem trocar a chave, um snapshot de até 10 minutos antes continuaria sendo
- * servido na ordem antiga, que já não é a ordem do sistema.
+ * P/L, v2 ordenava só pela margem com uma fórmula única para todo o mercado. Sem
+ * trocar a chave, um snapshot de até 10 minutos antes continuaria sendo servido
+ * com a régua antiga.
  */
-const RANKING_VERSION = 2
+const RANKING_VERSION = 3
 
-function rankingKey(discountRate: number): string {
-  return `ranking:acoes?k=${(discountRate * 100).toFixed(1)}&v=${RANKING_VERSION}`
+export interface RankingRequest {
+  discountRate: number
+  mode: RankingMode
+  requiredYield: number
+}
+
+function rankingKey(request: RankingRequest): string {
+  const k = (request.discountRate * 100).toFixed(1)
+  const dy = (request.requiredYield * 100).toFixed(1)
+  return `ranking:acoes?k=${k}&m=${request.mode}&dy=${dy}&v=${RANKING_VERSION}`
 }
 
 function toSearch(query: Record<string, string | number>): string {
@@ -66,22 +83,35 @@ export class RankStocks {
     this.env = env
   }
 
-  async execute(requestedDiscountRate: number): Promise<ServedRanking> {
-    const discountRate = normalizeDiscountRate(requestedDiscountRate)
+  async execute(requested: {
+    discountRate: number
+    mode?: RankingMode
+    requiredYield?: number
+  }): Promise<ServedRanking> {
+    const request: RankingRequest = {
+      discountRate: normalizeDiscountRate(requested.discountRate),
+      mode: requested.mode ?? 'setor',
+      requiredYield: normalizeRequiredYield(requested.requiredYield ?? BAZIN_REQUIRED_YIELD),
+    }
+    const options = {
+      discountRate: request.discountRate,
+      mode: request.mode,
+      requiredYield: request.requiredYield,
+    }
 
     // Sem banco a aplicação não para: calcula na hora, sem guardar.
     if (this.cache == null) {
       const stocks = await this.fetchStocks()
       return {
-        ranking: rankStocks(stocks, discountRate),
+        ranking: rankStocks(stocks, options),
         origin: 'upstream',
         capturedAt: new Date(),
       }
     }
 
-    const served = await this.cache.fetch(rankingKey(discountRate), async () => {
+    const served = await this.cache.fetch(rankingKey(request), async () => {
       const stocks = await this.loadStocksCached()
-      return { status: 200, payload: rankStocks(stocks, discountRate), ok: true }
+      return { status: 200, payload: rankStocks(stocks, options), ok: true }
     })
 
     return {

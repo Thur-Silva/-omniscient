@@ -1,25 +1,52 @@
 import { motion, useReducedMotion } from 'motion/react'
 import { Link } from 'react-router-dom'
 import { STOCK_CRITERIA, type StockRejectionReason } from '../../../../domain/stock/ranking'
-import { PERPETUAL_GROWTH } from '../../../../domain/valuation/models/two-phase-dcf'
-import { DISCOUNT_RATE_OPTIONS, useStockRanking } from '../../../hooks/useStockRanking'
+import {
+  CEILING_METHODS,
+  CEILING_METHOD_IDS,
+  type CeilingMethodId,
+} from '../../../../domain/valuation/methods'
+import {
+  DISCOUNT_RATE_OPTIONS,
+  REQUIRED_YIELD_OPTIONS,
+  useStockRanking,
+} from '../../../hooks/useStockRanking'
 import StockRankRow from './StockRankRow'
 
 const REASON_LABELS: Record<StockRejectionReason, string> = {
-  'sem-premissas': 'sem LPA, payout, ROE ou nº de ações na fonte',
-  'sem-lucro': 'sem lucro positivo (o modelo desconta lucro)',
   'liquidez-baixa': `liquidez abaixo de R$ ${STOCK_CRITERIA.minDailyLiquidity / 1_000_000}M/dia`,
   'sem-preco': 'sem cotação',
-  'modelo-recusou': 'premissas fora do que o modelo aceita',
+  'sem-metodo': 'sem premissa para nenhum método aplicável',
 }
 
 const integer = new Intl.NumberFormat('pt-BR')
 
+/** Métodos que dependem do retorno exigido; para os outros, k não muda nada. */
+const USES_DISCOUNT_RATE: readonly CeilingMethodId[] = [
+  'fcd-2-fases',
+  'ddm-gordon',
+  'renda-residual',
+]
+
 export default function StockOpportunitiesPage() {
-  const { ranking, discountRate, setDiscountRate, loading, error, refresh } = useStockRanking()
+  const {
+    ranking,
+    discountRate,
+    setDiscountRate,
+    mode,
+    setMode,
+    requiredYield,
+    setRequiredYield,
+    loading,
+    error,
+    refresh,
+  } = useStockRanking()
   const reduce = useReducedMotion()
 
   const ranked = ranking?.ranked ?? []
+  const showDiscountRate = mode === 'setor' || USES_DISCOUNT_RATE.includes(mode as CeilingMethodId)
+  const showRequiredYield = mode === 'setor' || mode === 'bazin'
+  const singleMethod = mode === 'setor' ? null : CEILING_METHODS[mode]
 
   return (
     <div className="page stack-lg">
@@ -40,31 +67,91 @@ export default function StockOpportunitiesPage() {
         <span className="criteria-item">
           liquidez ≥ R$ {STOCK_CRITERIA.minDailyLiquidity / 1_000_000}M/dia
         </span>
-        <span className="criteria-item">lucro positivo</span>
         <span className="criteria-item">
           g ≤ k − {(STOCK_CRITERIA.growthGapToDiscount * 100).toFixed(0)}pp
         </span>
-        <span className="criteria-item">g perpétuo {(PERPETUAL_GROWTH * 100).toFixed(0)}%</span>
+        <span className="criteria-item">ordem por margem contra o teto</span>
       </div>
 
-      {/* k é premissa do investidor, então fica na mão dele. Conjunto discreto
-          porque cada valor vira um registro próprio no banco. */}
+      {/* A régua: por setor cada ativo é avaliado pelo modelo da economia dele;
+          um método fixo compara todo o mercado pela mesma fórmula. */}
       <div className="filter-group">
-        <span className="filter-label">Retorno exigido (k)</span>
-        <div className="chips" role="group" aria-label="Taxa de desconto">
-          {DISCOUNT_RATE_OPTIONS.map((rate) => (
+        <span className="filter-label">Régua de avaliação</span>
+        <div className="chips" role="group" aria-label="Método de preço teto">
+          <button
+            type="button"
+            aria-pressed={mode === 'setor'}
+            className={`chip${mode === 'setor' ? ' is-active' : ''}`}
+            onClick={() => setMode('setor')}
+          >
+            Por setor
+          </button>
+          {CEILING_METHOD_IDS.map((id) => (
             <button
-              key={rate}
+              key={id}
               type="button"
-              aria-pressed={discountRate === rate}
-              className={`chip${discountRate === rate ? ' is-active' : ''}`}
-              onClick={() => setDiscountRate(rate)}
+              aria-pressed={mode === id}
+              className={`chip${mode === id ? ' is-active' : ''}`}
+              onClick={() => setMode(id)}
+              title={CEILING_METHODS[id].label}
             >
-              {(rate * 100).toFixed(0)}%
+              {CEILING_METHODS[id].short}
             </button>
           ))}
         </div>
+        <p className="muted picker-hint">
+          {singleMethod == null ? (
+            <>
+              Cada ação é avaliada pelo método da natureza dela: banco pelo patrimônio,
+              concessão pelo dividendo, cíclica pela média com o patrimônio. O método aparece
+              em cada linha.
+            </>
+          ) : (
+            <>
+              <strong>{singleMethod.label}</strong> — {singleMethod.formula}. {singleMethod.fits}{' '}
+              <em>{singleMethod.limits}</em>
+            </>
+          )}
+        </p>
       </div>
+
+      {showDiscountRate && (
+        <div className="filter-group">
+          <span className="filter-label">Retorno exigido (k)</span>
+          <div className="chips" role="group" aria-label="Taxa de desconto">
+            {DISCOUNT_RATE_OPTIONS.map((rate) => (
+              <button
+                key={rate}
+                type="button"
+                aria-pressed={discountRate === rate}
+                className={`chip${discountRate === rate ? ' is-active' : ''}`}
+                onClick={() => setDiscountRate(rate)}
+              >
+                {(rate * 100).toFixed(0)}%
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showRequiredYield && (
+        <div className="filter-group">
+          <span className="filter-label">Yield exigido (Bazin)</span>
+          <div className="chips" role="group" aria-label="Yield exigido">
+            {REQUIRED_YIELD_OPTIONS.map((rate) => (
+              <button
+                key={rate}
+                type="button"
+                aria-pressed={requiredYield === rate}
+                className={`chip${requiredYield === rate ? ' is-active' : ''}`}
+                onClick={() => setRequiredYield(rate)}
+              >
+                {(rate * 100).toFixed(0)}%
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="alert alert-error">
@@ -87,8 +174,8 @@ export default function StockOpportunitiesPage() {
           <div className="empty-invite">
             <h3>Nenhuma ação passou nos critérios</h3>
             <p>
-              Nenhuma das {integer.format(ranking?.universeSize ?? 0)} ações analisadas atende aos
-              filtros com k de {(discountRate * 100).toFixed(0)}%.
+              Nenhuma das {integer.format(ranking?.universeSize ?? 0)} ações analisadas pode ser
+              avaliada por esta régua com os dados que a fonte traz.
             </p>
           </div>
         </div>
@@ -96,7 +183,7 @@ export default function StockOpportunitiesPage() {
         <>
           <div className="rank-head">
             <span className="eyebrow">
-              {ranked.length} {ranked.length === 1 ? 'ação aprovada' : 'ações aprovadas'} de{' '}
+              {ranked.length} {ranked.length === 1 ? 'ação avaliada' : 'ações avaliadas'} de{' '}
               {integer.format(ranking?.universeSize ?? 0)}
             </span>
             <span className="rank-legend">
@@ -104,9 +191,20 @@ export default function StockOpportunitiesPage() {
             </span>
           </div>
 
+          {/* Composição da lista: qual método avaliou quantas ações. */}
+          {ranking != null && Object.keys(ranking.methodCounts).length > 1 && (
+            <div className="method-mix">
+              {CEILING_METHOD_IDS.filter((id) => (ranking.methodCounts[id] ?? 0) > 0).map((id) => (
+                <span className="method-mix-item" key={id}>
+                  <b>{ranking.methodCounts[id]}</b> {CEILING_METHODS[id].short}
+                </span>
+              ))}
+            </div>
+          )}
+
           <motion.div
             className="ledger"
-            key={discountRate}
+            key={`${discountRate}-${mode}-${requiredYield}`}
             initial={reduce ? undefined : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
@@ -144,11 +242,10 @@ export default function StockOpportunitiesPage() {
       )}
 
       <p className="quote-note">
-        Preço teto por fluxo de caixa descontado em duas fases (ver <code>/teto</code>), com as
-        premissas vindas do StatusInvest e o crescimento derivado de ROE × (1 − payout). A ordem sai
-        só da margem de desconto: o P/L aparece como referência, não como critério. O ranking é
-        calculado no servidor e guardado no banco por 10 minutos, para a fonte não ser consultada
-        mais que o necessário. Isto não é recomendação de investimento.
+        Premissas do StatusInvest, que não publica API oficial. A ordem sai só da margem de
+        desconto; o P/L aparece como referência, não como critério. Cada régua é um registro
+        próprio no banco, guardado por 10 minutos, e todas partem do mesmo snapshot de
+        fundamentos. Isto não é recomendação de investimento.
       </p>
     </div>
   )

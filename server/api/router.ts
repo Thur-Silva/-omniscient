@@ -6,6 +6,8 @@ import { PostgresFetchLogRepository } from '../infra/db/fetch-log-repository'
 import { PostgresSnapshotRepository } from '../infra/db/snapshot-repository'
 import { RankStocks } from '../application/rank-stocks'
 import type { CeilingValuation } from '../../src/domain/valuation/ceiling-valuation'
+import { CEILING_METHOD_IDS } from '../../src/domain/valuation/methods'
+import type { RankingMode } from '../../src/domain/stock/ranking'
 import {
   buildSourceKey,
   buildUpstreamUrl,
@@ -60,6 +62,9 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: R
 
 export const STOCK_RANKING_PATH = '/api/ranking/acoes'
 export const CEILING_PATH = '/api/ceiling'
+
+/** Formato de um uuid, para validar ids de cálculo antes da query. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Lê o corpo JSON da requisição, com limite de tamanho. */
 async function readJsonBody(req: IncomingMessage, limitBytes = 256 * 1024): Promise<unknown> {
@@ -209,6 +214,37 @@ async function handleCeilingList(parsed: URL, res: ServerResponse): Promise<void
   }
 }
 
+async function handleCeilingGet(parsed: URL, res: ServerResponse, id: string): Promise<void> {
+  const registry = services()
+  if (registry == null) {
+    sendJson(res, 503, {
+      error: true,
+      message: 'Banco indisponível: DATABASE_URL ausente.',
+    })
+    return
+  }
+
+  const userId = parsed.searchParams.get('user') ?? ''
+  if (userId.trim() === '') {
+    sendJson(res, 400, { error: true, message: 'Parâmetro user é obrigatório.' })
+    return
+  }
+
+  try {
+    const record = await registry.ceilings.get(id, userId)
+    if (record == null) {
+      sendJson(res, 404, { error: true, message: 'Cálculo não encontrado.' })
+      return
+    }
+    sendJson(res, 200, record)
+  } catch (error) {
+    sendJson(res, 500, {
+      error: true,
+      message: error instanceof Error ? error.message : 'Falha ao ler o cálculo.',
+    })
+  }
+}
+
 /**
  * Ranking de ações. O cálculo e a gravação no banco moram no servidor, então o
  * browser recebe a lista pronta e não recalcula nada.
@@ -218,12 +254,26 @@ async function handleStockRanking(
   res: ServerResponse,
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
-  // k chega em pontos percentuais; o domínio normaliza e limita a faixa.
+  // k e dy chegam em pontos percentuais; o domínio normaliza e limita a faixa.
   const raw = Number(parsed.searchParams.get('k') ?? '20')
-  const requested = Number.isFinite(raw) ? raw / 100 : 0.2
+  const discountRate = Number.isFinite(raw) ? raw / 100 : 0.2
+  const rawYield = Number(parsed.searchParams.get('dy') ?? '6')
+  const requiredYield = Number.isFinite(rawYield) ? rawYield / 100 : 0.06
+
+  // Régua: `setor` (padrão) ou um método fixo. Valor desconhecido volta ao padrão
+  // em vez de virar chave nova no banco.
+  const rawMode = parsed.searchParams.get('m') ?? 'setor'
+  const mode: RankingMode =
+    rawMode === 'setor' || (CEILING_METHOD_IDS as string[]).includes(rawMode)
+      ? (rawMode as RankingMode)
+      : 'setor'
 
   try {
-    const served = await new RankStocks(services()?.cache ?? null, env).execute(requested)
+    const served = await new RankStocks(services()?.cache ?? null, env).execute({
+      discountRate,
+      mode,
+      requiredYield,
+    })
     sendJson(res, 200, served.ranking, {
       'X-Cache': served.origin === 'upstream' ? 'miss' : served.origin === 'cache' ? 'hit' : 'stale',
       'X-Captured-At': served.capturedAt.toISOString(),
@@ -270,6 +320,24 @@ export async function handleApiRequest(
       return true
     }
     sendJson(res, 405, { error: true, message: 'Método não permitido.' })
+    return true
+  }
+
+  // Um cálculo salvo específico (`/api/ceiling/:id`), para a calculadora abrir
+  // com as premissas exatas daquele save em vez de buscar a fonte de novo.
+  if (parsed.pathname.startsWith(`${CEILING_PATH}/`)) {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: true, message: 'Método não permitido.' })
+      return true
+    }
+    const id = decodeURIComponent(parsed.pathname.slice(CEILING_PATH.length + 1))
+    // A coluna é uuid: um id fora do formato quebraria a query no Postgres
+    // (invalid input syntax) e viraria 500 — melhor devolver 404 antes.
+    if (id === '' || id.includes('/') || !UUID_RE.test(id)) {
+      sendJson(res, 404, { error: true, message: 'Cálculo não encontrado.' })
+      return true
+    }
+    await handleCeilingGet(parsed, res, id)
     return true
   }
 

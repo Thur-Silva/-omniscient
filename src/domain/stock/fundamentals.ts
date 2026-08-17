@@ -7,7 +7,16 @@
 export interface StockFundamentals {
   ticker: string
   name: string
+  /** Rótulo curto de setor, para exibição. */
   sector: string | null
+  /**
+   * Taxonomia B3 em três níveis, como a fonte devolve. Não é enfeite: é o que
+   * decide qual metodologia de preço teto se aplica ao ativo — banco não se
+   * avalia como concessionária, e nenhuma das duas como cíclica de commodity.
+   */
+  sectorName: string | null
+  subsectorName: string | null
+  segmentName: string | null
   price: number | null
   /** Lucro líquido dos últimos 12 meses, em reais. */
   netIncome: number | null
@@ -20,6 +29,12 @@ export interface StockFundamentals {
   bookValuePerShare: number | null
   priceToEarnings: number | null
   averageDailyLiquidity: number | null
+  /** Dividend yield dos últimos 12 meses como fração: 0,0909 é 9,09%. */
+  dividendYield: number | null
+  /** Dividendo por ação dos últimos 12 meses, em reais. */
+  dividendPerShare: number | null
+  /** Crescimento anual composto da receita em 5 anos, como fração. */
+  revenueCagr5: number | null
 }
 
 /**

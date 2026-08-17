@@ -1,5 +1,6 @@
+import { useEffect, useRef } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { Link } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EXPLICIT_YEARS, PERPETUAL_GROWTH } from '../../../../domain/valuation/models/two-phase-dcf'
 import {
   usePriceCeiling,
@@ -86,18 +87,48 @@ export default function PriceCeilingPage() {
     validation,
     loading,
     error,
+    loadSaved,
     save,
     saving,
     saveError,
     savedAt,
+    isSavedCalc,
   } = usePriceCeiling()
   const { isLoaded: userLoaded, isSignedIn, user } = useCurrentUser()
   const reduce = useReducedMotion()
+
+  // Vindo do histórico (`/teto/historico` → `?ticker=X`): escolhe o ativo já
+  // com os fundamentos da fonte. O parâmetro é consumido uma vez e limpo da
+  // URL, para o "Trocar ação" não reescolher o mesmo ativo no retorno.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const consumedTicker = useRef(searchParams.get('ticker'))
+
+  useEffect(() => {
+    const ticker = searchParams.get('ticker')
+    if (ticker == null || consumedTicker.current === ticker) return
+    consumedTicker.current = ticker
+    void select(ticker)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams, select])
 
   const fundamentals = selected?.fundamentals ?? null
   const marketPrice = fundamentals?.price ?? null
   const breakdown = result?.breakdown ?? null
   const canSave = userLoaded && isSignedIn && user != null
+
+  // Vindo do histórico (`/teto/salvo/:id`): abre a calculadora com as premissas
+  // exatas daquele save, sem buscar a fonte de novo. Consumido uma vez, para o
+  // "Trocar ação" não recarregar o mesmo cálculo no retorno. O usuário precisa
+  // já existir: se o Clerk ainda estiver hidratando, espera o efeito seguinte.
+  const { id: savedCalcId } = useParams()
+  const consumedSavedCalc = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (savedCalcId == null || user == null) return
+    if (consumedSavedCalc.current === savedCalcId) return
+    consumedSavedCalc.current = savedCalcId
+    void loadSaved(savedCalcId, user.id)
+  }, [savedCalcId, user, loadSaved])
 
   return (
     <div className="page stack-lg">
@@ -106,6 +137,9 @@ export default function PriceCeilingPage() {
         <div className="section-actions">
           <Link className="button button-ghost" to="/acoes">
             Ver ranking
+          </Link>
+          <Link className="button button-ghost" to="/teto/historico">
+            Meu histórico
           </Link>
           {selected && (
             <button className="button button-ghost" type="button" onClick={clear}>
@@ -120,6 +154,7 @@ export default function PriceCeilingPage() {
         <span className="criteria-item">{EXPLICIT_YEARS} anos + perpetuidade</span>
         <span className="criteria-item">g∞ limitado a {(PERPETUAL_GROWTH * 100).toFixed(0)}%</span>
         <span className="criteria-item">g = ROE × (1 − payout)</span>
+        <span className="criteria-item">desconta só o distribuível: FCFE = LL × (1 − g/ROE)</span>
       </div>
 
       {error && (
@@ -270,7 +305,8 @@ export default function PriceCeilingPage() {
             )}
           </motion.section>
 
-          {/* Salvar ─ guarda no banco o teto e todas as premissas usadas */}
+          {/* Salvar ─ grava no banco o teto e todas as premissas usadas; aberto
+              pelo histórico, o save atualiza aquele registro (upsert por ativo) */}
           {result && (
             <div className="save-bar">
               <button
@@ -279,7 +315,11 @@ export default function PriceCeilingPage() {
                 disabled={saving || !canSave}
                 onClick={() => user && void save(user.id)}
               >
-                {saving ? 'Salvando…' : `Salvar ${fundamentals?.ticker ?? 'cálculo'}`}
+                {saving
+                  ? 'Salvando…'
+                  : isSavedCalc
+                    ? `Atualizar ${fundamentals?.ticker ?? 'cálculo'}`
+                    : `Salvar ${fundamentals?.ticker ?? 'cálculo'}`}
               </button>
 
               {!canSave ? (
@@ -288,11 +328,15 @@ export default function PriceCeilingPage() {
                 <span className="save-note is-error">{saveError}</span>
               ) : savedAt != null ? (
                 <span className="save-note is-ok">
-                  Salvo com preço teto e todas as premissas utilizadas.
+                  {isSavedCalc
+                    ? 'Atualizado com o novo teto e as premissas utilizadas.'
+                    : 'Salvo com preço teto e todas as premissas utilizadas.'}
                 </span>
               ) : (
                 <span className="save-note">
-                  O teto e as premissas deste cálculo ficam guardados no seu histórico.
+                  {isSavedCalc
+                    ? 'Qualquer alteração atualiza o cálculo salvo no seu histórico.'
+                    : 'O teto e as premissas deste cálculo ficam guardados no seu histórico.'}
                 </span>
               )}
             </div>
@@ -350,9 +394,12 @@ export default function PriceCeilingPage() {
           </section>
 
           {/* Memória de cálculo ─ o modelo tem de ser auditável. Cada ano mostra
-              LL projetado, LL descontado, a taxa de crescimento aplicada (g) e a
-              taxa de desconto (k). g é editável ano a ano: é a correção do valor
-              inflado. Na perpetuidade o modelo limita g em 3%. */}
+              o LL projetado, o fluxo distribuível ao acionista (FCFE = LL ×
+              (1 − g/ROE)) e o FCFE descontado, com g e k aplicados. A trava de
+              retenção b = min(1, g/ROE) deixa no balanço o capital que o
+              crescimento exige — a regra de Basileia/Solvência. g é editável ano
+              a ano: é a correção do valor inflado. Na perpetuidade o modelo
+              limita g em 3%. */}
           {breakdown && (
             <section>
               <div className="section-head">
@@ -366,7 +413,8 @@ export default function PriceCeilingPage() {
                 <div className="calc-table-head">
                   <span className="calc-col-year">Ano</span>
                   <span className="calc-col-value">LL projetado</span>
-                  <span className="calc-col-value">LL descontado</span>
+                  <span className="calc-col-value">Fluxo distribuível (FCFE)</span>
+                  <span className="calc-col-value">FCFE descontado</span>
                   <span className="calc-col-growth">Taxa de crescimento (g)</span>
                   <span className="calc-col-value">Taxa de desconto (k)</span>
                 </div>
@@ -375,6 +423,10 @@ export default function PriceCeilingPage() {
                   <div className="calc-row calc-table-row" key={year.year}>
                     <span className="calc-col-year calc-label">Ano {year.year}</span>
                     <span className="calc-col-value calc-value">{bigMoney(year.netIncome)}</span>
+                    <span className="calc-col-value calc-value">
+                      {bigMoney(year.fcfe)}
+                      <small>distribui {percent(year.payoutRate, 1)}</small>
+                    </span>
                     <span className="calc-col-value calc-value">{bigMoney(year.presentValue)}</span>
                     <span className="calc-col-growth calc-value">
                       <input
@@ -401,6 +453,13 @@ export default function PriceCeilingPage() {
                     <small>perpetuidade</small>
                   </span>
                   <span className="calc-col-value calc-value">{bigMoney(breakdown.terminalNetIncome)}</span>
+                  <span className="calc-col-value calc-value">
+                    {bigMoney(breakdown.terminalFcfe)}
+                    <small>
+                      distribui{' '}
+                      {percent(breakdown.terminalFcfe / breakdown.terminalNetIncome, 1)}
+                    </small>
+                  </span>
                   <span className="calc-col-value calc-value">{bigMoney(breakdown.terminalPresentValue)}</span>
                   <span className="calc-col-growth calc-value">
                     <input
@@ -436,8 +495,10 @@ export default function PriceCeilingPage() {
                   <span className="calc-label">
                     Perpetuidade
                     <small>
-                      lucro do ano {EXPLICIT_YEARS + 1} de {bigMoney(breakdown.terminalNetIncome)} ÷ (k
-                      − {percent(breakdown.perpetualGrowthRate, 0)}) ={' '}
+                      fluxo distribuível do ano {EXPLICIT_YEARS + 1} (lucro de{' '}
+                      {bigMoney(breakdown.terminalNetIncome)} ×{' '}
+                      {percent(breakdown.terminalFcfe / breakdown.terminalNetIncome, 0)}) ÷ (k −{' '}
+                      {percent(breakdown.perpetualGrowthRate, 0)}) ={' '}
                       {bigMoney(breakdown.terminalValue)} no ano {EXPLICIT_YEARS}, trazido a hoje ·{' '}
                       {percent(breakdown.terminalShare, 1)} do valuation
                     </small>
@@ -465,9 +526,11 @@ export default function PriceCeilingPage() {
         Modelo de fluxo de caixa descontado em duas fases, conforme{' '}
         <code>src/docs/BBAS3.MD</code>: {EXPLICIT_YEARS} anos de projeção explícita crescendo a
         ROE × (1 − payout), mais perpetuidade pelo modelo de Gordon a{' '}
-        {(PERPETUAL_GROWTH * 100).toFixed(0)}% a.a. O fluxo descontado é o lucro integral, não o
-        dividendo. Fundamentos vindos do StatusInvest, que não publica API oficial. Isto não é
-        recomendação de investimento.
+        {(PERPETUAL_GROWTH * 100).toFixed(0)}% a.a. O fluxo descontado é o distribuível ao
+        acionista — FCFE = LL × (1 − g/ROE) —: o modelo retém o capital que o crescimento exige
+        (regra de Basileia/Solvência) e desconta apenas o que pode sair como dividendo/JCP, em
+        vez do lucro integral, que assumiria payout de 100% com ROE infinito. Fundamentos vindos
+        do StatusInvest, que não publica API oficial. Isto não é recomendação de investimento.
       </p>
     </div>
   )

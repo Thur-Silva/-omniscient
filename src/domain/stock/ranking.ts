@@ -1,10 +1,10 @@
-import type { StockFundamentals } from './fundamentals'
+import type { CeilingMethodId, MethodFamily } from '../valuation/methods'
+import { BAZIN_REQUIRED_YIELD } from '../valuation/models/bazin'
 import { calculateSafetyMargin } from '../valuation/models/safety-margin'
-import {
-  PERPETUAL_GROWTH,
-  sustainableGrowth,
-  TwoPhaseDcfModel,
-} from '../valuation/models/two-phase-dcf'
+import { PERPETUAL_GROWTH } from '../valuation/models/two-phase-dcf'
+import { resolveCeiling, type CeilingParams } from './ceiling'
+import type { StockFundamentals } from './fundamentals'
+import { selectMethod } from './method-selection'
 
 export const STOCK_CRITERIA = {
   /** Abaixo disso não aparece: não há como entrar nem sair da posição. */
@@ -25,22 +25,40 @@ export const STOCK_CRITERIA = {
   discountRateStep: 0.005,
 } as const
 
-export type StockRejectionReason =
-  | 'sem-premissas'
-  | 'sem-lucro'
-  | 'sem-preco'
-  | 'liquidez-baixa'
-  | 'modelo-recusou'
+export type StockRejectionReason = 'sem-preco' | 'liquidez-baixa' | 'sem-metodo'
+
+/**
+ * Régua do ranking: `setor` avalia cada ação pelo método da natureza dela, e um
+ * id de método força a mesma régua para todas.
+ */
+export type RankingMode = 'setor' | CeilingMethodId
+
+export interface RankingOptions {
+  discountRate: number
+  mode: RankingMode
+  /** Yield exigido do Bazin, como fração. */
+  requiredYield?: number
+}
 
 export interface RankedStock {
   fundamentals: StockFundamentals
+  /** Método que produziu este teto. */
+  method: CeilingMethodId
+  /** Método pedido pela régua, antes de qualquer degradação por falta de dado. */
+  requestedMethod: CeilingMethodId
+  fellBack: boolean
+  fallbackReason: string | null
+  /** Família do ativo e a frase que justifica a escolha. */
+  family: MethodFamily
+  methodReason: string
+  /** `true` quando o comportamento observado mudou a etiqueta do setor. */
+  adjustedByBehavior: boolean
   /** Preço teto por ação. */
   ceiling: number
   /** Desconto do mercado contra o teto, como fração. Único critério de ordem. */
   safetyMargin: number
-  /** Crescimento efetivamente usado, já com o limite aplicado. */
-  growthRate: number
-  /** Crescimento antes do limite, quando houve corte. */
+  /** g aplicado, quando o método usa crescimento. */
+  growthRate: number | null
   uncappedGrowthRate: number | null
   growthCapped: boolean
   /** Referência de tela, não entra na ordenação. */
@@ -52,10 +70,14 @@ export interface StockRanking {
   ranked: RankedStock[]
   /** Taxa de desconto usada, já normalizada. */
   discountRate: number
+  mode: RankingMode
+  requiredYield: number
   universeSize: number
   rejectedByReason: Record<StockRejectionReason, number>
   /** Quantas ações tiveram o crescimento truncado. */
   cappedCount: number
+  /** Quantas ações caíram em cada método, para a tela mostrar a composição. */
+  methodCounts: Partial<Record<CeilingMethodId, number>>
 }
 
 /**
@@ -72,85 +94,95 @@ export function normalizeDiscountRate(rate: number): number {
   return Number((Math.round(clamped / discountRateStep) * discountRateStep).toFixed(4))
 }
 
-function reject(stock: StockFundamentals, discountRate: number): StockRejectionReason | null {
-  const { netIncome, payout, returnOnEquity, sharesOutstanding, price } = stock
+/** Mesmo raciocínio para o yield do Bazin: passo de meio ponto, faixa fechada. */
+export function normalizeRequiredYield(rate: number): number {
+  if (!Number.isFinite(rate)) return BAZIN_REQUIRED_YIELD
+  const clamped = Math.min(0.2, Math.max(0.02, rate))
+  return Number((Math.round(clamped / 0.005) * 0.005).toFixed(4))
+}
 
-  if (payout == null || returnOnEquity == null || sharesOutstanding == null || netIncome == null) {
-    return 'sem-premissas'
-  }
-  if (netIncome <= 0) return 'sem-lucro'
-  if (price == null || price <= 0) return 'sem-preco'
+function reject(stock: StockFundamentals): StockRejectionReason | null {
+  if (stock.price == null || stock.price <= 0) return 'sem-preco'
   if ((stock.averageDailyLiquidity ?? 0) < STOCK_CRITERIA.minDailyLiquidity) {
     return 'liquidez-baixa'
   }
-  // A perpetuidade divide por (k − 3%); fora disso o modelo nem calcula.
-  if (discountRate <= PERPETUAL_GROWTH) return 'modelo-recusou'
   return null
 }
 
 /**
  * Ranqueia ações pela margem de desconto contra o preço teto.
  *
- * Eixo único, diferente do ranking de FIIs: a margem já sai do fluxo de caixa
- * descontado, que embute lucro, payout, ROE e k. Somar P/L a ela pesaria lucro
+ * Eixo único, diferente do ranking de FIIs: a margem já sai do modelo de
+ * valuation, que embute lucro, payout, ROE e k. Somar P/L a ela pesaria lucro
  * duas vezes e deslocaria a ordem para longe do desconto, que é o que se quer
  * medir. P/L segue no retorno apenas como leitura de tela.
+ *
+ * O método de cada ação depende da régua escolhida. Em `setor`, a família do
+ * ativo decide (ver `method-selection.ts`) e a lista mistura métodos de propósito:
+ * comparar SAPR11 e WEGE3 pela mesma fórmula é o erro que a régua por setor
+ * corrige. Com um método fixo, a lista fica comparável fórmula a fórmula, ao
+ * custo de aplicar a mesma régua a negócios de economia diferente.
  */
 export function rankStocks(
   universe: readonly StockFundamentals[],
-  requestedDiscountRate: number,
+  options: RankingOptions,
 ): StockRanking {
-  const discountRate = normalizeDiscountRate(requestedDiscountRate)
-  const model = new TwoPhaseDcfModel()
+  const discountRate = normalizeDiscountRate(options.discountRate)
+  const requiredYield = normalizeRequiredYield(options.requiredYield ?? BAZIN_REQUIRED_YIELD)
 
   const rejectedByReason: Record<StockRejectionReason, number> = {
-    'sem-premissas': 0,
-    'sem-lucro': 0,
     'sem-preco': 0,
     'liquidez-baixa': 0,
-    'modelo-recusou': 0,
+    'sem-metodo': 0,
+  }
+  const methodCounts: Partial<Record<CeilingMethodId, number>> = {}
+
+  const params: CeilingParams = {
+    discountRate,
+    requiredYield,
+    // A perpetuidade divide por (k − 3%): o limite de g precisa ficar acima disso
+    // para o modelo de Gordon não devolver teto sem sentido.
+    maxGrowth: Math.max(
+      PERPETUAL_GROWTH + STOCK_CRITERIA.growthGapToDiscount,
+      discountRate - STOCK_CRITERIA.growthGapToDiscount,
+    ),
   }
 
-  const maxGrowth = discountRate - STOCK_CRITERIA.growthGapToDiscount
   const evaluated: Omit<RankedStock, 'position'>[] = []
 
   for (const stock of universe) {
-    const reason = reject(stock, discountRate)
+    const reason = reject(stock)
     if (reason != null) {
       rejectedByReason[reason] += 1
       continue
     }
 
-    const raw = sustainableGrowth(stock.returnOnEquity!, stock.payout!)
-    const capped = raw > maxGrowth
-    const growthRate = capped ? maxGrowth : raw
-
-    // O modelo deriva g de ROE e payout, então para aplicar o limite passa-se um
-    // ROE equivalente ao g desejado, mantendo o payout.
-    const retention = 1 - stock.payout!
-    const effectiveRoe = retention > 0 ? growthRate / retention : 0
-
-    try {
-      const breakdown = model.project({
-        netIncome: stock.netIncome!,
-        payout: stock.payout!,
-        returnOnEquity: effectiveRoe,
-        discountRate,
-        sharesOutstanding: stock.sharesOutstanding!,
-      })
-
-      evaluated.push({
-        fundamentals: stock,
-        ceiling: breakdown.fairValue,
-        safetyMargin: calculateSafetyMargin(breakdown.fairValue, stock.price!),
-        growthRate: breakdown.growthRate,
-        uncappedGrowthRate: capped ? raw : null,
-        growthCapped: capped,
-        priceToEarnings: stock.priceToEarnings ?? null,
-      })
-    } catch {
-      rejectedByReason['modelo-recusou'] += 1
+    const selection = selectMethod(stock)
+    const chain = options.mode === 'setor' ? selection.preference : [options.mode]
+    const resolved = resolveCeiling(chain, stock, params)
+    if (resolved == null) {
+      rejectedByReason['sem-metodo'] += 1
+      continue
     }
+
+    methodCounts[resolved.method] = (methodCounts[resolved.method] ?? 0) + 1
+
+    evaluated.push({
+      fundamentals: stock,
+      method: resolved.method,
+      requestedMethod: resolved.requestedMethod,
+      fellBack: resolved.fellBack,
+      fallbackReason: resolved.fallbackReason,
+      family: selection.family,
+      methodReason: selection.reason,
+      adjustedByBehavior: selection.adjustedByBehavior,
+      ceiling: resolved.ceiling,
+      safetyMargin: calculateSafetyMargin(resolved.ceiling, stock.price!),
+      growthRate: resolved.growthRate,
+      uncappedGrowthRate: resolved.uncappedGrowthRate,
+      growthCapped: resolved.growthCapped,
+      priceToEarnings: stock.priceToEarnings ?? null,
+    })
   }
 
   // Maior desconto primeiro. Empate cai para o ticker, só para a ordem ser estável
@@ -166,8 +198,11 @@ export function rankStocks(
   return {
     ranked,
     discountRate,
+    mode: options.mode,
+    requiredYield,
     universeSize: universe.length,
     rejectedByReason,
     cappedCount: ranked.filter((entry) => entry.growthCapped).length,
+    methodCounts,
   }
 }

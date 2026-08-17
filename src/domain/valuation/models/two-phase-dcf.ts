@@ -16,10 +16,27 @@ export const EXPLICIT_YEARS = 3
  *
  * O que a empresa não distribui é reinvestido ao seu próprio retorno, então o
  * lucro cresce a `ROE × (1 − payout)`. É daqui que payout e ROE entram no
- * valuation: nenhum dos dois desconta fluxo, os dois definem a inclinação.
+ * valuation: os dois definem a inclinação e — via a trava de retenção — quanto
+ * do lucro é de fato distribuível.
  */
 export function sustainableGrowth(returnOnEquity: number, payout: number): number {
   return returnOnEquity * (1 - payout)
+}
+
+/**
+ * Taxa de retenção de lucros exigida para sustentar o crescimento `g`.
+ *
+ * Crescer a `g` com retorno `ROE` exige manter no balanço a fração `g / ROE` do
+ * lucro — a regra de capital regulatório (Basileia / Solvência SUSEP) aplicada
+ * ao valuation. O que sobra (`1 − retenção`) é o que pode sair como
+ * dividendo/JCP sem descapitalizar a operação. `g ≤ 0` não exige retenção
+ * (distribui tudo); `g ≥ ROE` exige retenção total — crescer acima do retorno
+ * pede capital externo, então não há fluxo a distribuir.
+ */
+export function retentionRate(growthRate: number, returnOnEquity: number): number {
+  if (growthRate <= 0) return 0
+  if (returnOnEquity <= 0) return 1
+  return Math.min(1, growthRate / returnOnEquity)
 }
 
 export interface TwoPhaseDcfProjection {
@@ -53,10 +70,22 @@ export interface TwoPhaseDcfInput extends TwoPhaseDcfProjection {
 
 export interface ProjectedYear {
   year: number
+  /** Lucro líquido projetado do ano. */
   netIncome: number
+  /**
+   * Fluxo efetivamente distribuível ao acionista (FCFE): `LL × (1 − g/ROE)`.
+   * É o que o desconto usa — a retenção que sustenta o crescimento não pode
+   * sair da empresa sem descumprir a exigência de capital.
+   */
+  fcfe: number
+  /** FCFE descontado a k, trazido ao ano 0. */
   presentValue: number
   /** g aplicado naquele ano: o derivado ou a sobrescrita do usuário. */
   growthRate: number
+  /** Fração do lucro retida para sustentar `g`: `min(1, g/ROE)`. */
+  retentionRate: number
+  /** Fração distribuível como dividendo/JCP: `1 − retenção`. */
+  payoutRate: number
   /** k aplicado naquele ano, como fração. */
   discountRate: number
 }
@@ -68,6 +97,8 @@ export interface TwoPhaseDcfBreakdown {
   explicitPresentValue: number
   /** Lucro do primeiro ano da perpetuidade. */
   terminalNetIncome: number
+  /** Fluxo distribuível do primeiro ano da perpetuidade: `LL × (1 − g/ROE)`. */
+  terminalFcfe: number
   /** Valor da perpetuidade medido na data do último ano explícito. */
   terminalValue: number
   terminalPresentValue: number
@@ -88,17 +119,19 @@ export interface TwoPhaseDcfBreakdown {
 }
 
 /**
- * Fluxo de caixa descontado em duas fases sobre o lucro líquido.
+ * Fluxo de caixa descontado em duas fases sobre o fluxo distribuível (FCFE).
  *
  * Projeta o lucro explicitamente por três anos crescendo a `ROE × (1 − payout)`
- * — cada ano pode ser sobrescrito pelo usuário —, traz cada ano a valor presente,
- * e resolve o resto do tempo pelo modelo de Gordon com crescimento perpétuo
- * limitado a 3%. O total dividido pelas ações é o preço teto.
+ * — cada ano pode ser sobrescrito pelo usuário —, aplica em cada ano a trava de
+ * retenção `b = min(1, g/ROE)` e desconta o que sobra (`LL × (1 − b)`) a valor
+ * presente; o resto do tempo resolve-se pelo modelo de Gordon sobre o FCFE da
+ * perpetuidade, com crescimento perpétuo limitado a 3%. O total dividido pelas
+ * ações é o preço teto.
  *
- * O fluxo descontado é o lucro **integral**, não o dividendo: o modelo pergunta
- * quanto vale toda a geração de lucro da empresa, e o payout entra apenas na
- * inclinação do crescimento. Descontar só o dividendo daria outro número, uma
- * ordem de grandeza menor.
+ * Descontar o lucro integral enquanto o fluxo cresce exigiria ROE infinito: se
+ * a empresa retém o capital que o crescimento pede — a regra de Basileia e de
+ * Solvência da SUSEP —, o que o acionista pode de fato sacar é só o excedente.
+ * A correção substitui o LL bruto pelo FCFE = LL × (1 − g/ROE).
  *
  * Documentado em `src/docs/BBAS3.MD`, cujo exemplo o modelo reproduz.
  */
@@ -127,7 +160,7 @@ export class TwoPhaseDcfModel implements ValuationModel<TwoPhaseDcfInput> {
 
     if (!Number.isFinite(netIncome) || netIncome <= 0) {
       throw new ValuationError(
-        'O lucro líquido precisa ser positivo: o modelo desconta lucro, e prejuízo não tem preço teto por este caminho.',
+        'O lucro líquido precisa ser positivo: o modelo desconta o fluxo distribuível, e prejuízo não tem preço teto por este caminho.',
       )
     }
     if (!Number.isFinite(payout) || payout < 0 || payout > 1) {
@@ -159,7 +192,9 @@ export class TwoPhaseDcfModel implements ValuationModel<TwoPhaseDcfInput> {
     const growthRate = sustainableGrowth(returnOnEquity, payout)
 
     // Fase explícita: o crescimento vale já no ano 1. Cada ano aceita uma
-    // sobrescrita do usuário; o resto deriva de ROE × (1 − payout).
+    // sobrescrita do usuário; o resto deriva de ROE × (1 − payout). A trava de
+    // retenção b = min(1, g/ROE) diz quanto do lucro fica no balanço para
+    // sustentar g; o desconto usa o excedente (FCFE = LL × (1 − b)).
     const years: ProjectedYear[] = []
     let previousNetIncome = netIncome
     for (let year = 1; year <= EXPLICIT_YEARS; year += 1) {
@@ -174,21 +209,30 @@ export class TwoPhaseDcfModel implements ValuationModel<TwoPhaseDcfInput> {
         yearGrowth = override
       }
       const projected = previousNetIncome * (1 + yearGrowth)
+      const retention = retentionRate(yearGrowth, returnOnEquity)
+      const fcfe = projected * (1 - retention)
       years.push({
         year,
         netIncome: projected,
-        presentValue: projected / (1 + k) ** year,
+        fcfe,
+        presentValue: fcfe / (1 + k) ** year,
         growthRate: yearGrowth,
+        retentionRate: retention,
+        payoutRate: 1 - retention,
         discountRate: k,
       })
       previousNetIncome = projected
     }
     const explicitPresentValue = years.reduce((sum, entry) => sum + entry.presentValue, 0)
 
-    // Perpetuidade pelo modelo de Gordon, medida no último ano explícito.
+    // Perpetuidade pelo modelo de Gordon sobre o FCFE, medida no último ano
+    // explícito: projeta o LL do ano N+1, aplica a mesma trava de retenção com o
+    // g perpétuo (limitado a 3%) e divide o fluxo distribuível por (k − g).
     const lastNetIncome = years[years.length - 1].netIncome
     const terminalNetIncome = lastNetIncome * (1 + perpetualGrowthRate)
-    const terminalValue = terminalNetIncome / (k - perpetualGrowthRate)
+    const terminalRetention = retentionRate(perpetualGrowthRate, returnOnEquity)
+    const terminalFcfe = terminalNetIncome * (1 - terminalRetention)
+    const terminalValue = terminalFcfe / (k - perpetualGrowthRate)
     const terminalPresentValue = terminalValue / (1 + k) ** EXPLICIT_YEARS
 
     const totalPresentValue = explicitPresentValue + terminalPresentValue
@@ -198,6 +242,7 @@ export class TwoPhaseDcfModel implements ValuationModel<TwoPhaseDcfInput> {
       years,
       explicitPresentValue,
       terminalNetIncome,
+      terminalFcfe,
       terminalValue,
       terminalPresentValue,
       totalPresentValue,

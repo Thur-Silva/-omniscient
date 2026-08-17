@@ -7,6 +7,8 @@ import type {
 import { ceilingValuationRepository } from '../../composition/container'
 import { estimatePriceCeiling } from '../../composition/container'
 import type { StockFundamentals } from '../../domain/stock/fundamentals'
+import { EXPLICIT_YEARS } from '../../domain/valuation/models/two-phase-dcf'
+import type { CeilingValuation } from '../../domain/valuation/ceiling-valuation'
 import { ValuationError } from '../../domain/errors/valuation-error'
 
 const DEBOUNCE_MS = 260
@@ -142,6 +144,60 @@ function toAssumptions(form: CeilingForm): CeilingAssumptions {
   }
 }
 
+const savedWhen = new Intl.DateTimeFormat('pt-BR', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+/**
+ * Reconstrói o estado da calculadora a partir de um cálculo salvo: as premissas
+ * voltam exatamente como estavam no save, e a fonte de fundamentos é o próprio
+ * registro, não uma busca nova (que traria números de hoje).
+ */
+function fromSaved(record: CeilingValuation): PrefilledCeiling {
+  const a = record.assumptions
+  return {
+    fundamentals: {
+      ticker: record.ticker,
+      name: `em ${savedWhen.format(new Date(record.createdAt))}`,
+      sector: 'cálculo salvo',
+      // O save guarda premissas, não a taxonomia do ativo: a régua por setor não
+      // se aplica a um cálculo reaberto, que já vem com o método escolhido.
+      sectorName: null,
+      subsectorName: null,
+      segmentName: null,
+      price: record.marketPrice,
+      netIncome: a.netIncome,
+      earningsPerShare: null,
+      payout: a.payout,
+      returnOnEquity: a.returnOnEquity,
+      sharesOutstanding: a.sharesOutstanding,
+      bookValuePerShare: null,
+      priceToEarnings: null,
+      averageDailyLiquidity: null,
+      dividendYield: null,
+      dividendPerShare: null,
+      revenueCagr5: null,
+    },
+    assumptions: {
+      netIncome: a.netIncome,
+      payout: a.payout,
+      returnOnEquity: a.returnOnEquity,
+      discountRate: a.discountRate,
+      sharesOutstanding: a.sharesOutstanding,
+      // O registro foi escrito com `CeilingAssumptions` completo; o contrato do
+      // modelo permite campos ausentes, então a borda normaliza para o que a
+      // calculadora espera: um g por ano explícito, `null` quando não havia.
+      growthRates: Array.from({ length: EXPLICIT_YEARS }, (_, index) => a.growthRates?.[index] ?? null),
+      perpetualGrowth: a.perpetualGrowth ?? null,
+    },
+    // O save só existe com cálculo pronto, então nada falta.
+    missing: [],
+  }
+}
+
 export interface UsePriceCeilingResult {
   term: string
   setTerm: (value: string) => void
@@ -151,6 +207,8 @@ export interface UsePriceCeilingResult {
   form: CeilingForm
   setField: (field: keyof CeilingForm, value: string) => void
   select: (ticker: string) => Promise<void>
+  /** Abre um cálculo salvo com as premissas exatas daquele save. */
+  loadSaved: (id: string, userId: string) => Promise<void>
   clear: () => void
   /** Volta as premissas ao que a fonte trouxe. */
   reset: () => void
@@ -172,6 +230,11 @@ export interface UsePriceCeilingResult {
   saveError: string | null
   /** ISO do último save que deu certo; null enquanto nada foi salvo. */
   savedAt: string | null
+  /**
+   * `true` quando a calculadora está com um cálculo salvo aberto (vindo do
+   * histórico): salvar de novo atualiza aquele registro no banco.
+   */
+  isSavedCalc: boolean
 }
 
 export function usePriceCeiling(): UsePriceCeilingResult {
@@ -185,6 +248,7 @@ export function usePriceCeiling(): UsePriceCeilingResult {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [isSavedCalc, setIsSavedCalc] = useState(false)
   const searchRef = useRef<AbortController | null>(null)
   const selectRef = useRef<AbortController | null>(null)
   /** Anos cujo g o usuário digitou à mão: esses não acompanham ROE × (1 − payout). */
@@ -254,9 +318,54 @@ export function usePriceCeiling(): UsePriceCeilingResult {
       setTerm('')
       setSavedAt(null)
       setSaveError(null)
+      setIsSavedCalc(false)
     } catch (cause) {
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : 'Falha ao carregar os fundamentos')
+      }
+    } finally {
+      if (!controller.signal.aborted) setLoading(false)
+    }
+  }, [])
+
+  const loadSaved = useCallback(async (id: string, userId: string) => {
+    selectRef.current?.abort()
+    const controller = new AbortController()
+    selectRef.current = controller
+
+    setLoading(true)
+    setError(null)
+    try {
+      const saved = await ceilingValuationRepository.get(id, userId, controller.signal)
+      if (controller.signal.aborted) return
+      if (saved == null) {
+        setError('Este cálculo salvo não existe mais no seu histórico.')
+        return
+      }
+      const prefilled = fromSaved(saved)
+      setSelected(prefilled)
+      manualGrowth.current.clear()
+      // g sobrescritos à mão no save precisam continuar sobrescritos: sem isso,
+      // o efeito de sincronização trocaria o valor salvo pelo ROE × (1 − payout).
+      const { returnOnEquity, payout, growthRates } = prefilled.assumptions
+      const derived =
+        returnOnEquity != null && payout != null
+          ? Number((returnOnEquity * (1 - payout) * 100).toFixed(2))
+          : null
+      growthRates.forEach((growth, index) => {
+        const field = DERIVED_GROWTH_FIELDS[index]
+        const growthPct = growth == null ? null : Number((growth * 100).toFixed(2))
+        if (growthPct != null && growthPct !== derived) manualGrowth.current.add(field)
+      })
+      setForm(toForm(prefilled.assumptions))
+      setResults([])
+      setTerm('')
+      setSavedAt(null)
+      setSaveError(null)
+      setIsSavedCalc(true)
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        setError(cause instanceof Error ? cause.message : 'Falha ao carregar o cálculo salvo')
       }
     } finally {
       if (!controller.signal.aborted) setLoading(false)
@@ -301,6 +410,7 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     setError(null)
     setSavedAt(null)
     setSaveError(null)
+    setIsSavedCalc(false)
   }, [])
 
   const reset = useCallback(() => {
@@ -391,6 +501,7 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     form,
     setField,
     select,
+    loadSaved,
     clear,
     reset,
     result,
@@ -402,5 +513,6 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     saving,
     saveError,
     savedAt,
+    isSavedCalc,
   }
 }
