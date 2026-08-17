@@ -1925,6 +1925,32 @@ body {
   color: var(--vermilion);
 }
 
+/* Salvar cálculo no banco: botão + nota de feedback lado a lado */
+.save-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px var(--pad-x);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--ink-raised);
+}
+
+.save-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--graphite);
+}
+
+.save-note.is-ok {
+  color: var(--jade);
+}
+
+.save-note.is-error {
+  color: var(--vermilion);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr;

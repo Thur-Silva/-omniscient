@@ -4,6 +4,7 @@ import type {
   CeilingResult,
   PrefilledCeiling,
 } from '../../application/stock/price-ceiling'
+import { ceilingValuationRepository } from '../../composition/container'
 import { estimatePriceCeiling } from '../../composition/container'
 import type { StockFundamentals } from '../../domain/stock/fundamentals'
 import { ValuationError } from '../../domain/errors/valuation-error'
@@ -164,6 +165,13 @@ export interface UsePriceCeilingResult {
   validation: string | null
   loading: boolean
   error: string | null
+  /** Salva no banco o cálculo atual com todas as premissas. */
+  save: (userId: string) => Promise<void>
+  saving: boolean
+  /** Erro do último save. */
+  saveError: string | null
+  /** ISO do último save que deu certo; null enquanto nada foi salvo. */
+  savedAt: string | null
 }
 
 export function usePriceCeiling(): UsePriceCeilingResult {
@@ -174,6 +182,9 @@ export function usePriceCeiling(): UsePriceCeilingResult {
   const [form, setForm] = useState<CeilingForm>(EMPTY_FORM)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [savedAt, setSavedAt] = useState<string | null>(null)
   const searchRef = useRef<AbortController | null>(null)
   const selectRef = useRef<AbortController | null>(null)
   /** Anos cujo g o usuário digitou à mão: esses não acompanham ROE × (1 − payout). */
@@ -241,6 +252,8 @@ export function usePriceCeiling(): UsePriceCeilingResult {
       setForm(toForm(prefilled.assumptions))
       setResults([])
       setTerm('')
+      setSavedAt(null)
+      setSaveError(null)
     } catch (cause) {
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : 'Falha ao carregar os fundamentos')
@@ -256,6 +269,10 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     if ((DERIVED_GROWTH_FIELDS as readonly string[]).includes(field)) {
       manualGrowth.current.add(field)
     }
+    // Qualquer edição invalida a confirmação de save: o que está no banco já
+    // não corresponde ao que a tela mostra agora.
+    setSavedAt(null)
+    setSaveError(null)
     setForm((current) => ({ ...current, [field]: value }))
   }, [])
 
@@ -282,10 +299,14 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     setSelected(null)
     setForm(EMPTY_FORM)
     setError(null)
+    setSavedAt(null)
+    setSaveError(null)
   }, [])
 
   const reset = useCallback(() => {
     manualGrowth.current.clear()
+    setSavedAt(null)
+    setSaveError(null)
     if (selected) setForm(toForm(selected.assumptions))
   }, [selected])
 
@@ -325,6 +346,42 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     }
   }, [form, selected])
 
+  const save = useCallback(
+    async (userId: string) => {
+      if (selected == null || result == null) return
+      setSaving(true)
+      setSaveError(null)
+      try {
+        const assumptions = toAssumptions(form)
+        // `result` só existe com todas as premissas obrigatórias preenchidas
+        // (compute devolve null antes), então os asserts aqui são seguros.
+        await ceilingValuationRepository.save({
+          userId,
+          ticker: selected.fundamentals.ticker,
+          marketPrice: result.marketPrice,
+          ceilingPrice: result.ceiling,
+          safetyMargin: result.safetyMargin,
+          assumptions: {
+            netIncome: assumptions.netIncome!,
+            payout: assumptions.payout!,
+            returnOnEquity: assumptions.returnOnEquity!,
+            discountRate: assumptions.discountRate!,
+            sharesOutstanding: assumptions.sharesOutstanding!,
+            growthRates: assumptions.growthRates,
+            perpetualGrowth: assumptions.perpetualGrowth,
+          },
+          breakdown: result.breakdown,
+        })
+        setSavedAt(new Date().toISOString())
+      } catch (cause) {
+        setSaveError(cause instanceof Error ? cause.message : 'Falha ao salvar o cálculo.')
+      } finally {
+        setSaving(false)
+      }
+    },
+    [selected, result, form],
+  )
+
   return {
     term,
     setTerm,
@@ -341,5 +398,9 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     validation,
     loading,
     error,
+    save,
+    saving,
+    saveError,
+    savedAt,
   }
 }

@@ -3,11 +3,13 @@ import { LoadPortfolio } from '../application/portfolio/load-portfolio'
 import { ScreenWatchlist } from '../application/screener/screen-watchlist'
 import { EstimatePriceCeiling } from '../application/stock/price-ceiling'
 import { StatusInvestFiiProvider } from '../infra/statusinvest/fii-provider'
+import { CeilingValuationApi } from '../infra/api/ceiling-valuation'
 import { StockRankingApi } from '../infra/api/stock-ranking'
 import { StatusInvestStockProvider } from '../infra/statusinvest/stock-provider'
 import type { QuoteProvider } from '../domain/asset/quote-provider'
 import type { AssetUniverseProvider } from '../domain/asset/universe'
 import type { PositionRepository } from '../domain/portfolio/repository'
+import type { CeilingValuationRepository } from '../domain/valuation/ceiling-valuation'
 import type { WatchlistRepository } from '../domain/watchlist/repository'
 import { BrapiQuoteProvider } from '../infra/brapi/quote-provider'
 import { BrapiUniverseProvider } from '../infra/brapi/universe-provider'
@@ -56,6 +58,12 @@ export const estimatePriceCeiling = new EstimatePriceCeiling(
 // folgado porque a primeira chamada da janela ainda vai à fonte.
 export const stockRankingApi = new StockRankingApi(
   new HttpClient({ baseUrl: appConfig.rankingBaseUrl, timeoutMs: 40_000 }),
+)
+
+// Histórico de preços teto: o browser calcula, o servidor guarda. Sem
+// dependência de usuário no construtor — o id vai em cada chamada.
+export const ceilingValuationRepository: CeilingValuationRepository = new CeilingValuationApi(
+  new HttpClient({ baseUrl: appConfig.apiBaseUrl, timeoutMs: 10_000 }),
 )
 
 export interface UserServices {

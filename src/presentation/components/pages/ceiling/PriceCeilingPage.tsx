@@ -6,6 +6,7 @@ import {
   type CeilingForm,
   type CeilingRequiredField,
 } from '../../../hooks/usePriceCeiling'
+import { useCurrentUser } from '../../../hooks/useCurrentUser'
 import AnimatedNumber from '../../instrument/AnimatedNumber'
 import SafetyGauge from '../../instrument/SafetyGauge'
 
@@ -85,12 +86,18 @@ export default function PriceCeilingPage() {
     validation,
     loading,
     error,
+    save,
+    saving,
+    saveError,
+    savedAt,
   } = usePriceCeiling()
+  const { isLoaded: userLoaded, isSignedIn, user } = useCurrentUser()
   const reduce = useReducedMotion()
 
   const fundamentals = selected?.fundamentals ?? null
   const marketPrice = fundamentals?.price ?? null
   const breakdown = result?.breakdown ?? null
+  const canSave = userLoaded && isSignedIn && user != null
 
   return (
     <div className="page stack-lg">
@@ -262,6 +269,34 @@ export default function PriceCeilingPage() {
               </>
             )}
           </motion.section>
+
+          {/* Salvar ─ guarda no banco o teto e todas as premissas usadas */}
+          {result && (
+            <div className="save-bar">
+              <button
+                className="button"
+                type="button"
+                disabled={saving || !canSave}
+                onClick={() => user && void save(user.id)}
+              >
+                {saving ? 'Salvando…' : `Salvar ${fundamentals?.ticker ?? 'cálculo'}`}
+              </button>
+
+              {!canSave ? (
+                <span className="save-note">Entre para salvar o cálculo no banco.</span>
+              ) : saveError != null ? (
+                <span className="save-note is-error">{saveError}</span>
+              ) : savedAt != null ? (
+                <span className="save-note is-ok">
+                  Salvo com preço teto e todas as premissas utilizadas.
+                </span>
+              ) : (
+                <span className="save-note">
+                  O teto e as premissas deste cálculo ficam guardados no seu histórico.
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Premissas ─ preenchidas pela fonte, editáveis */}
           <section>
