@@ -33,6 +33,18 @@ export interface TwoPhaseDcfProjection {
   discountRate: number
   /** Ações em circulação. */
   sharesOutstanding: number
+  /**
+   * g pedido para cada ano da fase explícita. `null`/omissão deixa o modelo
+   * derivar de `ROE × (1 − payout)` — é o caminho padrão; a sobrescrita existe
+   * para o usuário corrigir um ano que ache inflado sem mexer no resto.
+   */
+  growthRates?: (number | null | undefined)[]
+  /**
+   * g pedido para a perpetuidade, como fração. O modelo limita em
+   * `PERPETUAL_GROWTH` (3%): além disso o valor de Gordon explodiria com
+   * premissa insustentável. `null`/omissão usa o próprio limite.
+   */
+  perpetualGrowth?: number | null
 }
 
 export interface TwoPhaseDcfInput extends TwoPhaseDcfProjection {
@@ -43,10 +55,14 @@ export interface ProjectedYear {
   year: number
   netIncome: number
   presentValue: number
+  /** g aplicado naquele ano: o derivado ou a sobrescrita do usuário. */
+  growthRate: number
+  /** k aplicado naquele ano, como fração. */
+  discountRate: number
 }
 
 export interface TwoPhaseDcfBreakdown {
-  /** g da fase explícita, derivado de ROE e payout. */
+  /** g da fase explícita derivado de ROE e payout, sem sobrescritas. */
   growthRate: number
   years: ProjectedYear[]
   explicitPresentValue: number
@@ -61,15 +77,23 @@ export interface TwoPhaseDcfBreakdown {
   /** Participação de cada fase no valuation, como fração. */
   explicitShare: number
   terminalShare: number
+  /** Taxa de desconto aplicada, como fração. */
+  discountRate: number
+  /** g efetivamente aplicado na perpetuidade — sempre ≤ 3%. */
+  perpetualGrowthRate: number
+  /** g pedido pelo usuário, antes do limite de 3%. */
+  requestedPerpetualGrowth: number
+  /** `true` quando o usuário pediu mais que 3% e o modelo limitou. */
+  perpetualGrowthCapped: boolean
 }
 
 /**
  * Fluxo de caixa descontado em duas fases sobre o lucro líquido.
  *
- * Projeta o lucro explicitamente por três anos crescendo a `ROE × (1 − payout)`,
- * traz cada ano a valor presente, e resolve o resto do tempo pelo modelo de
- * Gordon com crescimento perpétuo de 3%. O total dividido pelas ações é o preço
- * teto.
+ * Projeta o lucro explicitamente por três anos crescendo a `ROE × (1 − payout)`
+ * — cada ano pode ser sobrescrito pelo usuário —, traz cada ano a valor presente,
+ * e resolve o resto do tempo pelo modelo de Gordon com crescimento perpétuo
+ * limitado a 3%. O total dividido pelas ações é o preço teto.
  *
  * O fluxo descontado é o lucro **integral**, não o dividendo: o modelo pergunta
  * quanto vale toda a geração de lucro da empresa, e o payout entra apenas na
@@ -123,24 +147,48 @@ export class TwoPhaseDcfModel implements ValuationModel<TwoPhaseDcfInput> {
       )
     }
 
+    // Perpetuidade: o usuário pode pedir mais, mas o modelo limita em 3%. O
+    // limite não é negociável: é a trava que impede premissa insustentável.
+    const requestedPerpetualGrowth = input.perpetualGrowth ?? PERPETUAL_GROWTH
+    if (!Number.isFinite(requestedPerpetualGrowth) || requestedPerpetualGrowth <= -1) {
+      throw new ValuationError('O crescimento perpétuo precisa ser maior que −100%.')
+    }
+    const perpetualGrowthRate = Math.min(PERPETUAL_GROWTH, requestedPerpetualGrowth)
+    const perpetualGrowthCapped = requestedPerpetualGrowth > PERPETUAL_GROWTH
+
     const growthRate = sustainableGrowth(returnOnEquity, payout)
 
-    // Fase explícita: o crescimento vale já no ano 1.
+    // Fase explícita: o crescimento vale já no ano 1. Cada ano aceita uma
+    // sobrescrita do usuário; o resto deriva de ROE × (1 − payout).
     const years: ProjectedYear[] = []
+    let previousNetIncome = netIncome
     for (let year = 1; year <= EXPLICIT_YEARS; year += 1) {
-      const projected = netIncome * (1 + growthRate) ** year
+      const override = input.growthRates?.[year - 1]
+      let yearGrowth = growthRate
+      if (override != null) {
+        if (!Number.isFinite(override) || override <= -1) {
+          throw new ValuationError(
+            `O crescimento do ano ${year} precisa ser maior que −100%.`,
+          )
+        }
+        yearGrowth = override
+      }
+      const projected = previousNetIncome * (1 + yearGrowth)
       years.push({
         year,
         netIncome: projected,
         presentValue: projected / (1 + k) ** year,
+        growthRate: yearGrowth,
+        discountRate: k,
       })
+      previousNetIncome = projected
     }
     const explicitPresentValue = years.reduce((sum, entry) => sum + entry.presentValue, 0)
 
     // Perpetuidade pelo modelo de Gordon, medida no último ano explícito.
     const lastNetIncome = years[years.length - 1].netIncome
-    const terminalNetIncome = lastNetIncome * (1 + PERPETUAL_GROWTH)
-    const terminalValue = terminalNetIncome / (k - PERPETUAL_GROWTH)
+    const terminalNetIncome = lastNetIncome * (1 + perpetualGrowthRate)
+    const terminalValue = terminalNetIncome / (k - perpetualGrowthRate)
     const terminalPresentValue = terminalValue / (1 + k) ** EXPLICIT_YEARS
 
     const totalPresentValue = explicitPresentValue + terminalPresentValue
@@ -156,6 +204,10 @@ export class TwoPhaseDcfModel implements ValuationModel<TwoPhaseDcfInput> {
       fairValue: totalPresentValue / sharesOutstanding,
       explicitShare: explicitPresentValue / totalPresentValue,
       terminalShare: terminalPresentValue / totalPresentValue,
+      discountRate: k,
+      perpetualGrowthRate,
+      requestedPerpetualGrowth,
+      perpetualGrowthCapped,
     }
   }
 }

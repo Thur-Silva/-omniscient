@@ -20,10 +20,26 @@ export interface CeilingForm {
   discountRate: string
   /** Absoluto. */
   sharesOutstanding: string
+  /** g do ano 1, em pontos percentuais. Vazio → ROE × (1 − payout). */
+  growth1: string
+  /** g do ano 2, em pontos percentuais. Vazio → ROE × (1 − payout). */
+  growth2: string
+  /** g do ano 3, em pontos percentuais. Vazio → ROE × (1 − payout). */
+  growth3: string
+  /** g pedido para a perpetuidade, em pontos percentuais. O modelo limita em 3%. */
+  perpetualGrowth: string
 }
 
+/** Campos obrigatórios (os de crescimento são opcionais, o modelo deriva). */
+export type CeilingRequiredField =
+  | 'netIncome'
+  | 'payout'
+  | 'returnOnEquity'
+  | 'discountRate'
+  | 'sharesOutstanding'
+
 /** Rótulos das premissas, para dizer o que falta em português corrido. */
-const FIELD_LABELS: Record<keyof CeilingAssumptions, string> = {
+const FIELD_LABELS: Record<CeilingRequiredField, string> = {
   netIncome: 'lucro líquido',
   payout: 'payout',
   returnOnEquity: 'ROE',
@@ -37,7 +53,19 @@ const EMPTY_FORM: CeilingForm = {
   returnOnEquity: '',
   discountRate: '',
   sharesOutstanding: '',
+  growth1: '',
+  growth2: '',
+  growth3: '',
+  perpetualGrowth: '',
 }
+
+/** Campos opcionais de crescimento: vazios deixam o modelo derivar. */
+const GROWTH_FIELDS: { field: keyof CeilingForm; label: string }[] = [
+  { field: 'growth1', label: 'crescimento do ano 1' },
+  { field: 'growth2', label: 'crescimento do ano 2' },
+  { field: 'growth3', label: 'crescimento do ano 3' },
+  { field: 'perpetualGrowth', label: 'crescimento perpétuo' },
+]
 
 /**
  * Aceita vírgula como separador decimal: a interface é pt-BR e digitar "20,5"
@@ -60,6 +88,9 @@ export function parseDecimal(raw: string): number | null {
 function toForm(assumptions: CeilingAssumptions): CeilingForm {
   const pct = (value: number | null) =>
     value == null ? '' : String(Number((value * 100).toFixed(2)))
+  const growthPct = (value: number | null | undefined) =>
+    value == null ? '' : String(Number((value * 100).toFixed(2)))
+  const [growth1, growth2, growth3] = assumptions.growthRates ?? []
   return {
     netIncome: assumptions.netIncome == null ? '' : String(Number((assumptions.netIncome / 1e9).toFixed(3))),
     payout: pct(assumptions.payout),
@@ -67,6 +98,10 @@ function toForm(assumptions: CeilingAssumptions): CeilingForm {
     discountRate: pct(assumptions.discountRate),
     sharesOutstanding:
       assumptions.sharesOutstanding == null ? '' : String(Math.round(assumptions.sharesOutstanding)),
+    growth1: growthPct(growth1),
+    growth2: growthPct(growth2),
+    growth3: growthPct(growth3),
+    perpetualGrowth: growthPct(assumptions.perpetualGrowth),
   }
 }
 
@@ -82,6 +117,8 @@ function toAssumptions(form: CeilingForm): CeilingAssumptions {
     returnOnEquity: pct(form.returnOnEquity),
     discountRate: pct(form.discountRate),
     sharesOutstanding: parseDecimal(form.sharesOutstanding),
+    growthRates: [pct(form.growth1), pct(form.growth2), pct(form.growth3)],
+    perpetualGrowth: pct(form.perpetualGrowth),
   }
 }
 
@@ -211,10 +248,24 @@ export function usePriceCeiling(): UsePriceCeilingResult {
 
     const assumptions = toAssumptions(form)
     const pendingFields = (
-      Object.entries(FIELD_LABELS) as [keyof CeilingAssumptions, string][]
+      Object.entries(FIELD_LABELS) as [CeilingRequiredField, string][]
     )
       .filter(([field]) => assumptions[field] == null)
       .map(([, label]) => label)
+
+    // Crescimento digitado com texto ilegível: o campo é opcional e um valor
+    // vazio deixa o modelo derivar, então só reclama do que não é vazio.
+    const unreadableGrowth = GROWTH_FIELDS.find(({ field }) => {
+      const raw = form[field]
+      return raw.trim() !== '' && parseDecimal(raw) == null
+    })
+    if (unreadableGrowth) {
+      return {
+        result: null,
+        validation: `${unreadableGrowth.label} inválido: use número, ex. 20,5.`,
+        pending: pendingFields,
+      }
+    }
 
     try {
       const computed = estimatePriceCeiling.compute(assumptions, selected.fundamentals.price)

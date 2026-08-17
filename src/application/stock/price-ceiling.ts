@@ -4,6 +4,9 @@ import {
   type StockFundamentalsProvider,
 } from '../../domain/stock/fundamentals'
 import {
+  EXPLICIT_YEARS,
+  PERPETUAL_GROWTH,
+  sustainableGrowth,
   TwoPhaseDcfModel,
   type TwoPhaseDcfBreakdown,
 } from '../../domain/valuation/models/two-phase-dcf'
@@ -22,6 +25,13 @@ export interface CeilingAssumptions {
   returnOnEquity: number | null
   discountRate: number | null
   sharesOutstanding: number | null
+  /**
+   * g pedido para cada ano da fase explícita. `null` deixa o modelo derivar de
+   * ROE × (1 − payout). É a sobrescrita do usuário sobre o valor inflado.
+   */
+  growthRates: (number | null)[]
+  /** g pedido para a perpetuidade. O modelo limita em 3%. */
+  perpetualGrowth: number | null
 }
 
 export interface PrefilledCeiling {
@@ -77,6 +87,14 @@ export class EstimatePriceCeiling {
     const fundamentals = await this.stocks.find(ticker, signal)
     if (fundamentals == null) return null
 
+    // g derivado de ROE e payout: é o valor "inflado" que a tela mostra por ano
+    // e deixa o usuário corrigir. Sem ROE ou payout, o campo vem vazio e o
+    // modelo deriva o mesmo caminho — a diferença é só de exibição.
+    const derivedGrowth =
+      fundamentals.payout != null && fundamentals.returnOnEquity != null
+        ? sustainableGrowth(fundamentals.returnOnEquity, fundamentals.payout)
+        : null
+
     return {
       fundamentals,
       assumptions: {
@@ -86,6 +104,8 @@ export class EstimatePriceCeiling {
         // Único campo sem origem em dado: começa no padrão documentado.
         discountRate: DEFAULT_DISCOUNT_RATE,
         sharesOutstanding: fundamentals.sharesOutstanding,
+        growthRates: Array.from({ length: EXPLICIT_YEARS }, () => derivedGrowth),
+        perpetualGrowth: PERPETUAL_GROWTH,
       },
       missing: missingForCeiling(fundamentals),
     }
@@ -113,6 +133,8 @@ export class EstimatePriceCeiling {
       returnOnEquity,
       discountRate,
       sharesOutstanding,
+      growthRates: assumptions.growthRates,
+      perpetualGrowth: assumptions.perpetualGrowth,
     })
 
     return {

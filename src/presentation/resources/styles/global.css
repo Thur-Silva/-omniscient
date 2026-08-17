@@ -1393,6 +1393,85 @@ body {
   color: var(--brass);
 }
 
+/* Memória de cálculo em tabela: cada ano expõe LL projetado, LL descontado,
+   g e k. O g é editável ano a ano — é a correção do valor inflado — e na
+   perpetuidade o modelo limita em 3%. Rolagem interna no celular. */
+.calc-table {
+  overflow-x: auto;
+}
+
+.calc-table-head,
+.calc-table-row {
+  display: grid;
+  grid-template-columns: 84px minmax(104px, 1fr) minmax(104px, 1fr) minmax(112px, 1fr) minmax(84px, 0.8fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 620px;
+}
+
+.calc-table-head {
+  padding: 10px var(--pad-x);
+  border-bottom: 1px solid var(--rule-bright);
+}
+
+.calc-table-head span {
+  font-size: 10px;
+  font-variation-settings: 'wght' 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--graphite);
+}
+
+.calc-col-value {
+  text-align: right;
+}
+
+.calc-col-growth {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.calc-col-growth i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--graphite);
+}
+
+.calc-table-row.is-infinity {
+  background: var(--ink-sunken);
+}
+
+.growth-input {
+  width: 68px;
+  padding: 4px 6px;
+  font-family: var(--font-price);
+  font-size: 13px;
+  text-align: right;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--rule-bright);
+  border-radius: var(--radius);
+  transition: border-color 0.2s var(--ease-out);
+}
+
+.growth-input::placeholder {
+  color: var(--graphite);
+}
+
+.growth-input:focus {
+  border-color: var(--brass);
+  outline: none;
+}
+
+.cap-note {
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--vermilion);
+  text-align: right;
+}
+
 /* ── Mercado: o catálogo real da B3, navegável ──────────────────────────── */
 
 .market {

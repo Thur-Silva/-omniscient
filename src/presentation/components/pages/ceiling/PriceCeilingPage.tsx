@@ -1,7 +1,11 @@
 import { motion, useReducedMotion } from 'motion/react'
 import { Link } from 'react-router-dom'
 import { EXPLICIT_YEARS, PERPETUAL_GROWTH } from '../../../../domain/valuation/models/two-phase-dcf'
-import { usePriceCeiling, type CeilingForm } from '../../../hooks/usePriceCeiling'
+import {
+  usePriceCeiling,
+  type CeilingForm,
+  type CeilingRequiredField,
+} from '../../../hooks/usePriceCeiling'
 import AnimatedNumber from '../../instrument/AnimatedNumber'
 import SafetyGauge from '../../instrument/SafetyGauge'
 
@@ -25,7 +29,7 @@ function percent(value: number | null | undefined, digits = 2): string {
 }
 
 interface FieldSpec {
-  field: keyof CeilingForm
+  field: CeilingRequiredField
   label: string
   suffix: string
   hint: string
@@ -107,7 +111,7 @@ export default function PriceCeilingPage() {
       <div className="criteria">
         <span className="criteria-item">FCD em 2 fases</span>
         <span className="criteria-item">{EXPLICIT_YEARS} anos + perpetuidade</span>
-        <span className="criteria-item">g perpétuo {(PERPETUAL_GROWTH * 100).toFixed(0)}%</span>
+        <span className="criteria-item">g∞ limitado a {(PERPETUAL_GROWTH * 100).toFixed(0)}%</span>
         <span className="criteria-item">g = ROE × (1 − payout)</span>
       </div>
 
@@ -310,7 +314,10 @@ export default function PriceCeilingPage() {
             </div>
           </section>
 
-          {/* Memória de cálculo ─ o modelo tem de ser auditável */}
+          {/* Memória de cálculo ─ o modelo tem de ser auditável. Cada ano mostra
+              LL projetado, LL descontado, a taxa de crescimento aplicada (g) e a
+              taxa de desconto (k). g é editável ano a ano: é a correção do valor
+              inflado. Na perpetuidade o modelo limita g em 3%. */}
           {breakdown && (
             <section>
               <div className="section-head">
@@ -320,16 +327,67 @@ export default function PriceCeilingPage() {
                 </span>
               </div>
 
-              <div className="ledger">
+              <div className="ledger calc-table">
+                <div className="calc-table-head">
+                  <span className="calc-col-year">Ano</span>
+                  <span className="calc-col-value">LL projetado</span>
+                  <span className="calc-col-value">LL descontado</span>
+                  <span className="calc-col-growth">Taxa de crescimento (g)</span>
+                  <span className="calc-col-value">Taxa de desconto (k)</span>
+                </div>
+
                 {breakdown.years.map((year) => (
-                  <div className="calc-row" key={year.year}>
-                    <span className="calc-label">
-                      Ano {year.year}
-                      <small>lucro projetado {bigMoney(year.netIncome)}</small>
+                  <div className="calc-row calc-table-row" key={year.year}>
+                    <span className="calc-col-year calc-label">Ano {year.year}</span>
+                    <span className="calc-col-value calc-value">{bigMoney(year.netIncome)}</span>
+                    <span className="calc-col-value calc-value">{bigMoney(year.presentValue)}</span>
+                    <span className="calc-col-growth calc-value">
+                      <input
+                        className="growth-input"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        aria-label={`Taxa de crescimento do ano ${year.year}`}
+                        placeholder={percent(year.growthRate)}
+                        value={form[`growth${year.year}` as keyof CeilingForm]}
+                        onChange={(e) =>
+                          setField(`growth${year.year}` as keyof CeilingForm, e.target.value)
+                        }
+                      />
+                      <i>%</i>
                     </span>
-                    <span className="price calc-value">{bigMoney(year.presentValue)}</span>
+                    <span className="calc-col-value calc-value">{percent(year.discountRate)}</span>
                   </div>
                 ))}
+
+                <div className="calc-row calc-table-row is-infinity">
+                  <span className="calc-col-year calc-label">
+                    Ano {EXPLICIT_YEARS + 1} → ∞
+                    <small>perpetuidade</small>
+                  </span>
+                  <span className="calc-col-value calc-value">{bigMoney(breakdown.terminalNetIncome)}</span>
+                  <span className="calc-col-value calc-value">{bigMoney(breakdown.terminalPresentValue)}</span>
+                  <span className="calc-col-growth calc-value">
+                    <input
+                      className="growth-input"
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      aria-label="Taxa de crescimento perpétua"
+                      placeholder={percent(breakdown.perpetualGrowthRate)}
+                      value={form.perpetualGrowth}
+                      onChange={(e) => setField('perpetualGrowth', e.target.value)}
+                    />
+                    <i>%</i>
+                    {breakdown.perpetualGrowthCapped && (
+                      <small className="cap-note">
+                        pedido {percent(breakdown.requestedPerpetualGrowth, 1)} · limitado a{' '}
+                        {(PERPETUAL_GROWTH * 100).toFixed(0)}%
+                      </small>
+                    )}
+                  </span>
+                  <span className="calc-col-value calc-value">{percent(breakdown.discountRate)}</span>
+                </div>
 
                 <div className="calc-row is-subtotal">
                   <span className="calc-label">
@@ -344,7 +402,7 @@ export default function PriceCeilingPage() {
                     Perpetuidade
                     <small>
                       lucro do ano {EXPLICIT_YEARS + 1} de {bigMoney(breakdown.terminalNetIncome)} ÷ (k
-                      − {(PERPETUAL_GROWTH * 100).toFixed(0)}%) ={' '}
+                      − {percent(breakdown.perpetualGrowthRate, 0)}) ={' '}
                       {bigMoney(breakdown.terminalValue)} no ano {EXPLICIT_YEARS}, trazido a hoje ·{' '}
                       {percent(breakdown.terminalShare, 1)} do valuation
                     </small>
