@@ -129,6 +129,12 @@ function parseCeilingInput(body: unknown): Omit<CeilingValuation, 'id' | 'create
   if (typeof record.breakdown !== 'object' || record.breakdown === null) {
     throw new CeilingInputError('breakdown é obrigatório.')
   }
+  // A coluna tem check de lista fechada: método fora do catálogo viraria erro do
+  // Postgres e 500. Melhor recusar aqui, dizendo o que é aceito.
+  const method = record.method
+  if (typeof method !== 'string' || !(CEILING_METHOD_IDS as string[]).includes(method)) {
+    throw new CeilingInputError(`method precisa ser um de: ${CEILING_METHOD_IDS.join(', ')}.`)
+  }
 
   return {
     userId,
@@ -136,6 +142,7 @@ function parseCeilingInput(body: unknown): Omit<CeilingValuation, 'id' | 'create
     marketPrice: marketPrice == null ? null : Number(marketPrice),
     ceilingPrice,
     safetyMargin: safetyMargin == null ? null : Number(safetyMargin),
+    method: method as CeilingValuation['method'],
     assumptions: record.assumptions as CeilingValuation['assumptions'],
     breakdown: record.breakdown as CeilingValuation['breakdown'],
   }

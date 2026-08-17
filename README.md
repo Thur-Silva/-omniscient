@@ -105,47 +105,103 @@ src/
 A dependência aponta sempre para dentro: `presentation → application → domain`.
 A infra implementa as portas do domínio e é ligada em `composition/container.ts`.
 
+## Metodologia por tipo de ativo
+
+Uma fórmula só erra de modo sistemático. O que muda de uma empresa para outra não
+é a preferência de quem calcula: é qual fluxo chega ao acionista e qual base é
+estável. Sanepar e BBSE3 não se avaliam igual, e é isso que decide o método.
+
+| Família | Setor B3 | Método padrão | Por quê |
+| --- | --- | --- | --- |
+| financeiro | Intermediários Financeiros, Previdência e Seguros, Serviços Financeiros, Holdings, Exploração de Imóveis | **Renda residual**, `VPA × (ROE − g)/(k − g)` | Para instituição financeira a dívida é insumo: FCFF, EBITDA e capital de giro não se definem. Restam modelos de equity, e a base estável é o patrimônio. |
+| pagadora | Energia Elétrica, Água e Saneamento, Gás, Telecomunicações, Rodovias, Ferrovias | **DDM em 2 fases**, `Σ DPAₜ/(1+k)ᵗ + Gordon` | Receita regulada, payout alto, crescimento real baixo. O que chega ao acionista é o dividendo; projetar lucro retido credita à ação um caixa que não sai. |
+| cíclica | Materiais Básicos, Petróleo e Gás, Siderurgia, Mineração, Papel, Químicos, Agro, Alimentos, Construção Civil, Automóveis | **Número de Graham**, `√(22,5 × LPA × VPA)` | Lucro reverte à média e é irregular. Projetar os últimos 12 meses por três anos multiplica um resultado de pico ou de fundo; a raiz com o patrimônio amortece. |
+| crescimento | o resto: consumo, saúde, tecnologia, bens industriais | **FCD em 2 fases** sobre o FCFE | O valor está na trajetória do resultado, com a trava de retenção limitando o que pode sair da empresa. |
+
+Entre crescimento e pagadora, os dados corrigem a etiqueta do setor: payout ≥ 60%
+com DY ≥ 5% e receita quase parada (CAGR ≤ 8%) lê-se como pagadora; payout < 40%
+com CAGR ≥ 15% lê-se como crescimento. Financeiro e cíclica não são
+reclassificados por dados — ali a razão é estrutural, e payout nenhum torna um
+banco avaliável por FCFF.
+
+O quinto método, **Bazin** (`DPA ÷ yield exigido`), não é padrão de nenhuma
+família: entra quando você o escolhe, ou quando o DDM não fecha. É uma exigência
+de renda invertida, não desconto de fluxo. Na `/teto` ele usa a média dos cinco
+exercícios encerrados, como no livro; no ranking, o DY de 12 meses.
+
+**O que cada um mede, e onde erra**, aparece na própria tela: a página `/teto`
+mostra o método em uso, a fórmula, o fluxo descontado, a justificativa do setor e o
+parágrafo "onde erra" antes de você trocar de régua. O ranking mostra a etiqueta do
+método em cada linha e, ao abrir, a mesma justificativa.
+
+### Limites que a fonte exige
+
+Três travas existem por causa de dado ruim, e cada uma nasceu de um caso medido:
+
+- **g ≤ k − 1pp** na fase explícita. A fonte reporta ROE de 366,8% para EQPA3, o
+  que daria `g` de 361% e teto de R$ 3.654 contra preço de R$ 5,17.
+- **g ≤ 3% na renda residual**, dentro do modelo. É fórmula de perpetuidade: com g
+  truncado só em `k − 1pp`, o denominador `(k − g)` virava 0,01 e PINE4 saía com
+  P/VP justificado de 11 e teto de R$ 106 contra preço de R$ 10.
+- **DY de 12 meses acima de 20% não serve de base** para métodos de dividendo.
+  GRND3 tem DY de 36,7% na fonte: distribuição extraordinária, que o Bazin
+  multiplicaria por 16. Payout acima de 100% é aceito, mas limitado a 100% para
+  efeito de g — sem retenção não há crescimento por reinvestimento.
+
+O número de Graham só é usado onde é o método recomendado. Como degradação ele
+capturava 73 das 158 ações — exige apenas LPA e VPA — e, por não descontar fluxo,
+devolve teto mais generoso: o pior dado subia ao topo. Quando nenhum método
+aplicável fecha, a ação sai da lista.
+
 ## Ações descontadas (`/acoes`)
 
 Ranking automático do mercado pelo preço teto.
 
-**Elegibilidade:** lucro líquido positivo, cotação, liquidez média diária ≥ R$ 2
-milhões e as quatro premissas presentes na fonte.
+**Elegibilidade:** cotação e liquidez média diária ≥ R$ 2 milhões. Sai da lista
+quem não tem premissa para nenhum método aplicável à sua família.
 
 **Ranking:** eixo único — a **margem de desconto** contra o preço teto, do maior
-desconto para o menor. Empate cai para o ticker, só para a ordem ser estável
-entre duas apurações seguidas.
+desconto para o menor. Empate cai para o ticker, só para a ordem ser estável entre
+duas apurações seguidas.
 
 Diferente do ranking de FIIs, aqui não há soma de colocações. A margem já sai do
-fluxo de caixa descontado, que embute lucro, payout, ROE e k; somar P/L a ela
-pesaria lucro duas vezes e deslocaria a ordem para longe do desconto, que é
-justamente o que se quer medir. O P/L continua na lista e no detalhe, como
-referência de tela.
+modelo de valuation, que embute lucro, payout, ROE e k; somar P/L a ela pesaria
+lucro duas vezes e deslocaria a ordem para longe do desconto, que é justamente o
+que se quer medir. O P/L continua na lista e no detalhe, como referência de tela.
 
-A taxa de desconto é escolhida por você (10% a 25%), e o resultado muda bastante:
-o teto do PETR4 vai de R$ 178,67 com k de 10% a R$ 71,08 com k de 25%.
+**A régua é sua:** *por setor* avalia cada ação pelo método da natureza dela, e
+qualquer um dos cinco métodos pode ser fixado para toda a lista. Por setor, a lista
+mistura métodos de propósito — é o que corrige avaliar SAPR11 e WEGE3 pela mesma
+fórmula —, mas margens de modelos diferentes não são estritamente comparáveis: o
+número de Graham não desconta a k, então devolve teto mais generoso. Para comparar
+fórmula a fórmula, fixe um método.
 
-Exemplo real (14/08/2026, k = 20%, 617 ações → 107 aprovadas):
+A taxa de desconto é escolhida por você (10% a 25%), e o resultado muda bastante: o
+teto do PETR4 vai de R$ 178,67 com k de 10% a R$ 71,08 com k de 25%.
+
+Exemplo real (17/08/2026, k = 18%, régua por setor, 617 ações → 144 avaliadas):
 
 ```
-#   ticker   margem   P/L    teto      preco
-1   RIAA3     65,5%   2,3   19,82       6,84
-2   JHSF3     60,9%   3,5   27,64      10,81   g limitado
-3   PETR4     53,5%   4,1   91,69      42,63   g limitado
-4   PINE4     52,4%   4,2   21,17      10,08   g limitado
-5   BRSR6     52,2%   3,3   27,81      13,28
+#   ticker  método     família       margem     teto    preco
+1   EVEN3   Graham     cíclica        70,2%    14,65     4,37
+2   RIAA3   FCD        crescimento    65,0%    19,37     6,77
+3   JHSF3   Graham     cíclica        62,6%    27,76    10,37
+4   EZTC3   Graham     cíclica        62,6%    28,54    10,68
+5   CYRE4   Graham     cíclica        57,8%    49,94    21,06
 ```
 
-Das 617 ações do universo, 107 passam: 347 caem por não ter as premissas na fonte,
-130 por liquidez e 33 por premissas que o modelo recusa.
+Composição da lista: 46 por FCD, 25 por DDM, 25 por renda residual, 48 pelo número
+de Graham. Das 617 do universo, 38 caem sem cotação, 388 por liquidez e 47 sem
+premissa para método nenhum.
 
-### O limite de crescimento
+Os casos que motivaram o recorte por setor: **SAPR11** sai pelo DDM (teto R$ 3,74
+contra preço de R$ 32,54 — o ROE na fonte é de 3,76% e você exige 18%), **BBSE3**
+pela renda residual (teto R$ 29,69, P/VP justificado de 5,29 contra 6,63 de
+mercado), **BBAS3** e **ITUB4** também por renda residual, **VALE3** e **PETR4**
+pelo número de Graham, **WEGE3** pelo FCD.
 
-O crescimento é truncado em `k − 1pp`. Sem isso o ranking vira lixo: a fonte
-reporta **ROE de 366,8% para EQPA3**, o que daria `g` de 361% e um teto de
-R$ 3.654 contra um preço de R$ 5,17 — primeiro lugar por dado ruim. As ações
-truncadas ficam marcadas com *g limitado* na lista, com o valor original
-riscado no detalhe. Com k de 20% são 7; com k de 10%, 38.
+As ações com crescimento truncado ficam marcadas com *g limitado* na lista, com o
+valor original riscado no detalhe.
 
 ### Guardado no banco
 
@@ -153,14 +209,17 @@ O ranking é calculado **no servidor** e gravado no Postgres, porque só o servi
 alcança o banco. São duas camadas de cache encaixadas, cada uma com janela de 10
 minutos:
 
-| Chave | Conteúdo | Depende de k |
+| Chave | Conteúdo | Depende da régua |
 | --- | --- | --- |
 | `fundamentos:/category/…CategoryType=1` | resposta crua do StatusInvest (443 KB) | não |
-| `ranking:acoes?k=20.0&v=2` | ranking já calculado (57 KB) | sim |
+| `fundamentos:/acao/companytickerprovents?…ticker=X` | histórico anual de proventos de um ativo | não |
+| `ranking:acoes?k=18.0&m=setor&dy=6.0&v=3` | ranking já calculado (~57 KB) | sim |
 
-O `v` na chave é a versão da metodologia — hoje 2, porque a 1 somava colocação de
-margem com colocação de P/L. Sem trocar a chave, um snapshot de até 10 minutos
-antes seguiria sendo servido na ordem antiga.
+Tudo que muda o resultado entra na chave do ranking: `k`, `m` (a régua) e `dy` (o
+yield exigido do Bazin). O `v` é a versão da metodologia — hoje 3: a 1 somava
+colocação de margem com colocação de P/L, a 2 ordenava só pela margem com uma
+fórmula única para todo o mercado. Sem trocar a chave, um snapshot de até 10
+minutos antes seguiria sendo servido com a régua antiga.
 
 Como a chave dos fundamentos não tem `k`, **uma só ida à fonte alimenta todos os
 k** e também a página `/teto`. Medido: `chamadas=1` no `api_fetch_log` depois de

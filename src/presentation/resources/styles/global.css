@@ -1310,6 +1310,48 @@ body {
   color: var(--vermilion);
 }
 
+/* Painel do método na calculadora: o texto explica a régua antes de o usuário
+   trocar de régua, então ele é conteúdo, não legenda. */
+.method-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--brass);
+  border-radius: var(--radius-lg);
+  background: var(--ink-raised);
+}
+
+.method-panel .method-note {
+  padding: 0;
+}
+
+.method-panel .section-head {
+  margin-bottom: 0;
+}
+
+/* O recomendado fica marcado mesmo quando outro está ativo: a troca é do usuário,
+   a recomendação continua sendo do sistema. */
+.chip.is-recommended::after {
+  content: '·';
+  margin-left: 4px;
+  color: var(--brass);
+}
+
+.chip.is-active.is-recommended::after {
+  color: currentcolor;
+}
+
+.method-note p.method-limits {
+  color: var(--paper-dim);
+}
+
+.method-note p.method-source {
+  font-size: 11px;
+  color: var(--graphite-dim);
+}
+
 .method-mix {
   display: flex;
   flex-wrap: wrap;

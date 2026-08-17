@@ -188,6 +188,10 @@ export default function StockOpportunitiesPage() {
             </span>
             <span className="rank-legend">
               ordem = margem de desconto contra o preço teto · maior é melhor
+              {/* Aviso honesto: o número de Graham não desconta fluxo a k, então
+                  produz teto mais generoso e sobe na lista mista. Comparação
+                  estrita é dentro de um método — daí a régua única. */}
+              {mode === 'setor' && ' · margens de métodos diferentes não são estritamente comparáveis'}
             </span>
           </div>
 

@@ -26,9 +26,16 @@ export interface GrahamNumberBreakdown {
   bookValuePerShare: number
   /** Preço teto: √(22,5 × LPA × VPA). */
   fairValue: number
-  /** P/L no teto — sempre ≤ 15 por construção. */
+  /**
+   * P/L no preço teto.
+   *
+   * O que a fórmula garante é o produto: `P/L × P/VP = 22,5` no teto. Cada lado
+   * isolado passa do limite defensivo quando lucro e patrimônio divergem — BBAS3,
+   * com VPA doze vezes o LPA, dá P/L de 16,5 contra P/VP de 1,36. A média
+   * geométrica é do par, não de cada critério.
+   */
   priceToEarningsAtCeiling: number
-  /** P/VP no teto — sempre ≤ 1,5 por construção. */
+  /** P/VP no preço teto. Vale a mesma observação do P/L. */
   priceToBookAtCeiling: number
 }
 

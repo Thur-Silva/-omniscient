@@ -6,6 +6,7 @@ import { StatusInvestFiiProvider } from '../infra/statusinvest/fii-provider'
 import { CeilingValuationApi } from '../infra/api/ceiling-valuation'
 import { StockRankingApi } from '../infra/api/stock-ranking'
 import { StatusInvestStockProvider } from '../infra/statusinvest/stock-provider'
+import { StatusInvestDividendHistoryProvider } from '../infra/statusinvest/dividend-history-provider'
 import type { QuoteProvider } from '../domain/asset/quote-provider'
 import type { AssetUniverseProvider } from '../domain/asset/universe'
 import type { PositionRepository } from '../domain/portfolio/repository'
@@ -49,9 +50,12 @@ export const findFiiOpportunities = new FindFiiOpportunities(
   new StatusInvestFiiProvider(fundamentalsHttp),
 )
 
-// Ações saem do mesmo proxy, em outra categoria da busca avançada.
+// Ações saem do mesmo proxy, em outra categoria da busca avançada. O histórico de
+// proventos vem do mesmo host, mas custa uma requisição por ticker: alimenta a
+// calculadora de um ativo (média de 5 anos do Bazin), nunca o ranking.
 export const estimatePriceCeiling = new EstimatePriceCeiling(
   new StatusInvestStockProvider(fundamentalsHttp),
+  new StatusInvestDividendHistoryProvider(fundamentalsHttp),
 )
 
 // O ranking vem do nosso servidor, já calculado e guardado no banco. Timeout

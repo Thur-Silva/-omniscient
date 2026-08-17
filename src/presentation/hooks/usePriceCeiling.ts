@@ -8,6 +8,8 @@ import { ceilingValuationRepository } from '../../composition/container'
 import { estimatePriceCeiling } from '../../composition/container'
 import type { StockFundamentals } from '../../domain/stock/fundamentals'
 import { EXPLICIT_YEARS } from '../../domain/valuation/models/two-phase-dcf'
+import type { CeilingSavedAssumptions } from '../../domain/valuation/breakdown'
+import { CEILING_METHODS, type CeilingMethodId } from '../../domain/valuation/methods'
 import type { CeilingValuation } from '../../domain/valuation/ceiling-valuation'
 import { ValuationError } from '../../domain/errors/valuation-error'
 
@@ -31,23 +33,14 @@ export interface CeilingForm {
   growth3: string
   /** g pedido para a perpetuidade, em pontos percentuais. O modelo limita em 3%. */
   perpetualGrowth: string
-}
-
-/** Campos obrigatórios (os de crescimento são opcionais, o modelo deriva). */
-export type CeilingRequiredField =
-  | 'netIncome'
-  | 'payout'
-  | 'returnOnEquity'
-  | 'discountRate'
-  | 'sharesOutstanding'
-
-/** Rótulos das premissas, para dizer o que falta em português corrido. */
-const FIELD_LABELS: Record<CeilingRequiredField, string> = {
-  netIncome: 'lucro líquido',
-  payout: 'payout',
-  returnOnEquity: 'ROE',
-  discountRate: 'taxa de desconto',
-  sharesOutstanding: 'número de ações',
+  /** Dividendo por ação, em reais. Base do DDM e do Bazin. */
+  dividendPerShare: string
+  /** Yield exigido do Bazin, em pontos percentuais. */
+  requiredYield: string
+  /** Lucro por ação, em reais. */
+  earningsPerShare: string
+  /** Valor patrimonial por ação, em reais. */
+  bookValuePerShare: string
 }
 
 const EMPTY_FORM: CeilingForm = {
@@ -60,6 +53,10 @@ const EMPTY_FORM: CeilingForm = {
   growth2: '',
   growth3: '',
   perpetualGrowth: '',
+  dividendPerShare: '',
+  requiredYield: '',
+  earningsPerShare: '',
+  bookValuePerShare: '',
 }
 
 /** Campos opcionais de crescimento: vazios deixam o modelo derivar. */
@@ -85,7 +82,8 @@ function derivedGrowthText(roeRaw: string, payoutRaw: string): string | null {
   const roe = parseDecimal(roeRaw)
   const payout = parseDecimal(payoutRaw)
   if (roe == null || payout == null) return null
-  const growth = (roe / 100) * (1 - payout / 100)
+  // Payout acima de 100% não gera retenção negativa: sem retenção, g = 0.
+  const growth = (roe / 100) * (1 - Math.min(1, payout / 100))
   return String(Number((growth * 100).toFixed(2)))
 }
 
@@ -112,6 +110,8 @@ function toForm(assumptions: CeilingAssumptions): CeilingForm {
     value == null ? '' : String(Number((value * 100).toFixed(2)))
   const growthPct = (value: number | null | undefined) =>
     value == null ? '' : String(Number((value * 100).toFixed(2)))
+  const cash = (value: number | null) =>
+    value == null ? '' : String(Number(value.toFixed(4)))
   const [growth1, growth2, growth3] = assumptions.growthRates ?? []
   return {
     netIncome: assumptions.netIncome == null ? '' : String(Number((assumptions.netIncome / 1e9).toFixed(3))),
@@ -124,6 +124,10 @@ function toForm(assumptions: CeilingAssumptions): CeilingForm {
     growth2: growthPct(growth2),
     growth3: growthPct(growth3),
     perpetualGrowth: growthPct(assumptions.perpetualGrowth),
+    dividendPerShare: cash(assumptions.dividendPerShare),
+    requiredYield: pct(assumptions.requiredYield),
+    earningsPerShare: cash(assumptions.earningsPerShare),
+    bookValuePerShare: cash(assumptions.bookValuePerShare),
   }
 }
 
@@ -141,7 +145,36 @@ function toAssumptions(form: CeilingForm): CeilingAssumptions {
     sharesOutstanding: parseDecimal(form.sharesOutstanding),
     growthRates: [pct(form.growth1), pct(form.growth2), pct(form.growth3)],
     perpetualGrowth: pct(form.perpetualGrowth),
+    dividendPerShare: parseDecimal(form.dividendPerShare),
+    requiredYield: pct(form.requiredYield),
+    earningsPerShare: parseDecimal(form.earningsPerShare),
+    bookValuePerShare: parseDecimal(form.bookValuePerShare),
   }
+}
+
+/**
+ * Premissas a gravar: só as que o método pediu.
+ *
+ * Guardar o formulário inteiro sujaria o registro com números que não entraram na
+ * conta — um teto de Bazin com ROE e número de ações sugeriria influência que não
+ * houve. As sobrescritas de g acompanham os métodos que projetam fase explícita.
+ */
+function toSavedAssumptions(
+  method: CeilingMethodId,
+  assumptions: CeilingAssumptions,
+): CeilingSavedAssumptions {
+  const saved: CeilingSavedAssumptions = {}
+  for (const input of CEILING_METHODS[method].inputs) {
+    const value = assumptions[input]
+    if (typeof value === 'number') saved[input] = value
+  }
+  if (method === 'fcd-2-fases' || method === 'ddm-gordon') {
+    saved.perpetualGrowth = assumptions.perpetualGrowth
+  }
+  if (method === 'fcd-2-fases') {
+    saved.growthRates = assumptions.growthRates
+  }
+  return saved
 }
 
 const savedWhen = new Intl.DateTimeFormat('pt-BR', {
@@ -153,8 +186,9 @@ const savedWhen = new Intl.DateTimeFormat('pt-BR', {
 
 /**
  * Reconstrói o estado da calculadora a partir de um cálculo salvo: as premissas
- * voltam exatamente como estavam no save, e a fonte de fundamentos é o próprio
- * registro, não uma busca nova (que traria números de hoje).
+ * voltam exatamente como estavam no save, com o método daquele registro, e a
+ * fonte de fundamentos é o próprio registro, não uma busca nova (que traria
+ * números de hoje).
  */
 function fromSaved(record: CeilingValuation): PrefilledCeiling {
   const a = record.assumptions
@@ -169,30 +203,43 @@ function fromSaved(record: CeilingValuation): PrefilledCeiling {
       subsectorName: null,
       segmentName: null,
       price: record.marketPrice,
-      netIncome: a.netIncome,
-      earningsPerShare: null,
-      payout: a.payout,
-      returnOnEquity: a.returnOnEquity,
-      sharesOutstanding: a.sharesOutstanding,
-      bookValuePerShare: null,
+      netIncome: a.netIncome ?? null,
+      earningsPerShare: a.earningsPerShare ?? null,
+      payout: a.payout ?? null,
+      returnOnEquity: a.returnOnEquity ?? null,
+      sharesOutstanding: a.sharesOutstanding ?? null,
+      bookValuePerShare: a.bookValuePerShare ?? null,
       priceToEarnings: null,
       averageDailyLiquidity: null,
       dividendYield: null,
-      dividendPerShare: null,
+      dividendPerShare: a.dividendPerShare ?? null,
       revenueCagr5: null,
     },
     assumptions: {
-      netIncome: a.netIncome,
-      payout: a.payout,
-      returnOnEquity: a.returnOnEquity,
-      discountRate: a.discountRate,
-      sharesOutstanding: a.sharesOutstanding,
-      // O registro foi escrito com `CeilingAssumptions` completo; o contrato do
-      // modelo permite campos ausentes, então a borda normaliza para o que a
-      // calculadora espera: um g por ano explícito, `null` quando não havia.
+      netIncome: a.netIncome ?? null,
+      payout: a.payout ?? null,
+      returnOnEquity: a.returnOnEquity ?? null,
+      discountRate: a.discountRate ?? null,
+      sharesOutstanding: a.sharesOutstanding ?? null,
+      // O registro foi escrito com as premissas do método; o contrato permite
+      // campos ausentes, então a borda normaliza para o que a calculadora espera:
+      // um g por ano explícito, `null` quando não havia.
       growthRates: Array.from({ length: EXPLICIT_YEARS }, (_, index) => a.growthRates?.[index] ?? null),
       perpetualGrowth: a.perpetualGrowth ?? null,
+      dividendPerShare: a.dividendPerShare ?? null,
+      requiredYield: a.requiredYield ?? null,
+      earningsPerShare: a.earningsPerShare ?? null,
+      bookValuePerShare: a.bookValuePerShare ?? null,
     },
+    // Cálculo salvo não tem régua a recomendar: o método é o que foi usado.
+    selection: {
+      family: 'crescimento',
+      recommended: record.method,
+      preference: [record.method],
+      reason: `Cálculo salvo com ${CEILING_METHODS[record.method].label}. As premissas são as daquele momento, não as de hoje.`,
+      adjustedByBehavior: false,
+    },
+    dividendAverage: null,
     // O save só existe com cálculo pronto, então nada falta.
     missing: [],
   }
@@ -212,18 +259,25 @@ export interface UsePriceCeilingResult {
   clear: () => void
   /** Volta as premissas ao que a fonte trouxe. */
   reset: () => void
+  /** Método em uso. Começa no recomendado para o ativo. */
+  method: CeilingMethodId
+  setMethod: (method: CeilingMethodId) => void
+  /** `true` quando o método em uso não é o recomendado para o ativo. */
+  methodOverridden: boolean
+  /** De onde vem o dividendo no campo: média histórica, 12 meses ou digitado. */
+  dividendBase: 'media' | 'doze-meses' | 'manual'
   result: CeilingResult | null
   /**
-   * Campos vazios agora. Diferente de `selected.missing`, que diz o que a fonte
-   * não trouxe: aqui é o estado atual do formulário, então apagar um campo
-   * preenchido pela fonte também conta.
+   * Campos vazios agora, entre os que o método em uso exige. Diferente de
+   * `selected.missing`, que diz o que a fonte não trouxe: aqui é o estado atual do
+   * formulário, então apagar um campo preenchido pela fonte também conta.
    */
   pending: string[]
   /** Erro de premissa inválida, vindo do domínio. */
   validation: string | null
   loading: boolean
   error: string | null
-  /** Salva no banco o cálculo atual com todas as premissas. */
+  /** Salva no banco o cálculo atual com o método e as premissas usadas. */
   save: (userId: string) => Promise<void>
   saving: boolean
   /** Erro do último save. */
@@ -243,6 +297,8 @@ export function usePriceCeiling(): UsePriceCeilingResult {
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<PrefilledCeiling | null>(null)
   const [form, setForm] = useState<CeilingForm>(EMPTY_FORM)
+  const [method, setMethodState] = useState<CeilingMethodId>('fcd-2-fases')
+  const [methodOverridden, setMethodOverridden] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -253,6 +309,8 @@ export function usePriceCeiling(): UsePriceCeilingResult {
   const selectRef = useRef<AbortController | null>(null)
   /** Anos cujo g o usuário digitou à mão: esses não acompanham ROE × (1 − payout). */
   const manualGrowth = useRef<Set<keyof CeilingForm>>(new Set())
+  /** Dividendo digitado à mão: para de acompanhar a base do método. */
+  const manualDividend = useRef(false)
 
   useEffect(() => {
     const needle = term.trim()
@@ -313,7 +371,11 @@ export function usePriceCeiling(): UsePriceCeilingResult {
       }
       setSelected(prefilled)
       manualGrowth.current.clear()
+      manualDividend.current = false
       setForm(toForm(prefilled.assumptions))
+      // Abre no método da natureza do ativo. Trocar depois é escolha explícita.
+      setMethodState(prefilled.selection.recommended)
+      setMethodOverridden(false)
       setResults([])
       setTerm('')
       setSavedAt(null)
@@ -345,12 +407,14 @@ export function usePriceCeiling(): UsePriceCeilingResult {
       const prefilled = fromSaved(saved)
       setSelected(prefilled)
       manualGrowth.current.clear()
+      // O save já traz o dividendo que foi usado: não é para a base do método sobrescrevê-lo.
+      manualDividend.current = true
       // g sobrescritos à mão no save precisam continuar sobrescritos: sem isso,
       // o efeito de sincronização trocaria o valor salvo pelo ROE × (1 − payout).
       const { returnOnEquity, payout, growthRates } = prefilled.assumptions
       const derived =
         returnOnEquity != null && payout != null
-          ? Number((returnOnEquity * (1 - payout) * 100).toFixed(2))
+          ? Number((returnOnEquity * (1 - Math.min(1, payout)) * 100).toFixed(2))
           : null
       growthRates.forEach((growth, index) => {
         const field = DERIVED_GROWTH_FIELDS[index]
@@ -358,6 +422,8 @@ export function usePriceCeiling(): UsePriceCeilingResult {
         if (growthPct != null && growthPct !== derived) manualGrowth.current.add(field)
       })
       setForm(toForm(prefilled.assumptions))
+      setMethodState(saved.method)
+      setMethodOverridden(false)
       setResults([])
       setTerm('')
       setSavedAt(null)
@@ -378,12 +444,23 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     if ((DERIVED_GROWTH_FIELDS as readonly string[]).includes(field)) {
       manualGrowth.current.add(field)
     }
+    if (field === 'dividendPerShare') manualDividend.current = true
     // Qualquer edição invalida a confirmação de save: o que está no banco já
     // não corresponde ao que a tela mostra agora.
     setSavedAt(null)
     setSaveError(null)
     setForm((current) => ({ ...current, [field]: value }))
   }, [])
+
+  const setMethod = useCallback(
+    (next: CeilingMethodId) => {
+      setSavedAt(null)
+      setSaveError(null)
+      setMethodState(next)
+      setMethodOverridden(selected != null && next !== selected.selection.recommended)
+    },
+    [selected],
+  )
 
   // g deriva de ROE × (1 − payout): quando ROE ou payout mudam, os campos de g
   // que não foram sobrescritos à mão acompanham o novo derivado. Sem isto, o
@@ -403,21 +480,48 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     })
   }, [form.returnOnEquity, form.payout, selected])
 
+  /**
+   * Base de dividendo por método.
+   *
+   * O Bazin é definido sobre a média dos exercícios encerrados — é o que separa o
+   * método de uma extrapolação do último ano —, enquanto o desconto de dividendos
+   * projeta crescimento a partir do dividendo corrente. Trocar a régua troca a
+   * base, a menos que o usuário tenha digitado a sua.
+   */
+  useEffect(() => {
+    if (selected == null || manualDividend.current) return
+    const average = selected.dividendAverage?.average ?? null
+    const trailing = selected.fundamentals.dividendPerShare
+    const base = method === 'bazin' ? (average ?? trailing) : (trailing ?? average)
+    if (base == null) return
+    const text = String(Number(base.toFixed(4)))
+    setForm((current) =>
+      current.dividendPerShare === text ? current : { ...current, dividendPerShare: text },
+    )
+  }, [method, selected])
+
   const clear = useCallback(() => {
     manualGrowth.current.clear()
+    manualDividend.current = false
     setSelected(null)
     setForm(EMPTY_FORM)
     setError(null)
     setSavedAt(null)
     setSaveError(null)
     setIsSavedCalc(false)
+    setMethodOverridden(false)
   }, [])
 
   const reset = useCallback(() => {
     manualGrowth.current.clear()
+    manualDividend.current = false
     setSavedAt(null)
     setSaveError(null)
-    if (selected) setForm(toForm(selected.assumptions))
+    if (selected) {
+      setForm(toForm(selected.assumptions))
+      setMethodState(selected.selection.recommended)
+      setMethodOverridden(false)
+    }
   }, [selected])
 
   // Recalcula a cada tecla. Premissa inválida vira mensagem, não exceção na tela.
@@ -425,11 +529,7 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     if (selected == null) return { result: null, validation: null, pending: [] }
 
     const assumptions = toAssumptions(form)
-    const pendingFields = (
-      Object.entries(FIELD_LABELS) as [CeilingRequiredField, string][]
-    )
-      .filter(([field]) => assumptions[field] == null)
-      .map(([, label]) => label)
+    const pendingFields = estimatePriceCeiling.missingFor(method, assumptions)
 
     // Crescimento digitado com texto ilegível: o campo é opcional e um valor
     // vazio deixa o modelo derivar, então só reclama do que não é vazio.
@@ -446,7 +546,11 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     }
 
     try {
-      const computed = estimatePriceCeiling.compute(assumptions, selected.fundamentals.price)
+      const computed = estimatePriceCeiling.compute(
+        method,
+        assumptions,
+        selected.fundamentals.price,
+      )
       return { result: computed, validation: null, pending: pendingFields }
     } catch (cause) {
       if (cause instanceof ValuationError) {
@@ -454,7 +558,7 @@ export function usePriceCeiling(): UsePriceCeilingResult {
       }
       return { result: null, validation: 'Premissas inválidas.', pending: pendingFields }
     }
-  }, [form, selected])
+  }, [form, selected, method])
 
   const save = useCallback(
     async (userId: string) => {
@@ -463,23 +567,14 @@ export function usePriceCeiling(): UsePriceCeilingResult {
       setSaveError(null)
       try {
         const assumptions = toAssumptions(form)
-        // `result` só existe com todas as premissas obrigatórias preenchidas
-        // (compute devolve null antes), então os asserts aqui são seguros.
         await ceilingValuationRepository.save({
           userId,
           ticker: selected.fundamentals.ticker,
           marketPrice: result.marketPrice,
           ceilingPrice: result.ceiling,
           safetyMargin: result.safetyMargin,
-          assumptions: {
-            netIncome: assumptions.netIncome!,
-            payout: assumptions.payout!,
-            returnOnEquity: assumptions.returnOnEquity!,
-            discountRate: assumptions.discountRate!,
-            sharesOutstanding: assumptions.sharesOutstanding!,
-            growthRates: assumptions.growthRates,
-            perpetualGrowth: assumptions.perpetualGrowth,
-          },
+          method: result.method,
+          assumptions: toSavedAssumptions(result.method, assumptions),
           breakdown: result.breakdown,
         })
         setSavedAt(new Date().toISOString())
@@ -492,6 +587,12 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     [selected, result, form],
   )
 
+  const dividendBase: 'media' | 'doze-meses' | 'manual' = manualDividend.current
+    ? 'manual'
+    : method === 'bazin' && selected?.dividendAverage != null
+      ? 'media'
+      : 'doze-meses'
+
   return {
     term,
     setTerm,
@@ -500,10 +601,14 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     selected,
     form,
     setField,
+    dividendBase,
     select,
     loadSaved,
     clear,
     reset,
+    method,
+    setMethod,
+    methodOverridden,
     result,
     pending,
     validation,

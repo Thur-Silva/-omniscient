@@ -1,28 +1,12 @@
 import { ValuationError } from '../errors/valuation-error'
 import type { CeilingMethodId, MethodInput } from '../valuation/methods'
 import { CEILING_METHODS } from '../valuation/methods'
-import {
-  BazinModel,
-  MAX_TRAILING_DIVIDEND_YIELD,
-  type BazinBreakdown,
-} from '../valuation/models/bazin'
-import {
-  GrahamNumberModel,
-  type GrahamNumberBreakdown,
-} from '../valuation/models/graham-number'
-import {
-  ResidualIncomeModel,
-  type ResidualIncomeBreakdown,
-} from '../valuation/models/residual-income'
-import {
-  sustainableGrowth,
-  TwoPhaseDcfModel,
-  type TwoPhaseDcfBreakdown,
-} from '../valuation/models/two-phase-dcf'
-import {
-  TwoPhaseDdmModel,
-  type TwoPhaseDdmBreakdown,
-} from '../valuation/models/two-phase-ddm'
+import { BazinModel, MAX_TRAILING_DIVIDEND_YIELD } from '../valuation/models/bazin'
+import { GrahamNumberModel } from '../valuation/models/graham-number'
+import { ResidualIncomeModel } from '../valuation/models/residual-income'
+import { sustainableGrowth, TwoPhaseDcfModel } from '../valuation/models/two-phase-dcf'
+import { TwoPhaseDdmModel } from '../valuation/models/two-phase-ddm'
+import type { CeilingBreakdown } from '../valuation/breakdown'
 import type { StockFundamentals } from './fundamentals'
 
 /**
@@ -50,14 +34,17 @@ export interface CeilingParams {
    * original, quando o histórico está disponível.
    */
   dividendPerShare?: number | null
+  /**
+   * Sobrescrita de g por ano da fase explícita, só para o FCD. É por aqui que a
+   * calculadora deixa o usuário corrigir um ano que ache inflado; o ranking não
+   * usa, então a lista continua saindo do g derivado.
+   */
+  growthRates?: (number | null)[]
+  /** g pedido para a perpetuidade. Os modelos limitam em 3%. */
+  perpetualGrowth?: number | null
 }
 
-export type CeilingBreakdown =
-  | { method: 'fcd-2-fases'; dcf: TwoPhaseDcfBreakdown }
-  | { method: 'ddm-gordon'; ddm: TwoPhaseDdmBreakdown }
-  | { method: 'bazin'; bazin: BazinBreakdown }
-  | { method: 'renda-residual'; residual: ResidualIncomeBreakdown }
-  | { method: 'numero-graham'; graham: GrahamNumberBreakdown }
+export type { CeilingBreakdown } from '../valuation/breakdown'
 
 export interface MethodCeiling {
   method: CeilingMethodId
@@ -204,6 +191,8 @@ export function computeCeiling(
         returnOnEquity: effectiveRoe,
         discountRate: params.discountRate,
         sharesOutstanding: stock.sharesOutstanding!,
+        growthRates: params.growthRates,
+        perpetualGrowth: params.perpetualGrowth,
       })
       return { method, ceiling: dcf.fairValue, breakdown: { method, dcf }, ...base }
     }
@@ -214,6 +203,7 @@ export function computeCeiling(
         returnOnEquity: stock.returnOnEquity!,
         discountRate: params.discountRate,
         growthRate,
+        perpetualGrowth: params.perpetualGrowth,
       })
       return { method, ceiling: ddm.fairValue, breakdown: { method, ddm }, ...base }
     }

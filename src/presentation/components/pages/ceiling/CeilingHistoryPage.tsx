@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { CeilingValuation } from '../../../../domain/valuation/ceiling-valuation'
+import type { CeilingBreakdown } from '../../../../domain/valuation/breakdown'
+import { CEILING_METHODS } from '../../../../domain/valuation/methods'
 import { useCeilingHistory } from '../../../hooks/useCeilingHistory'
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -69,9 +71,46 @@ export default function CeilingHistoryPage() {
   )
 }
 
+/**
+ * As premissas que resumem um cálculo dependem do método: g e k dizem tudo num
+ * fluxo descontado e nada num teto de Bazin, onde o que importa é o dividendo e o
+ * yield exigido. Cada registro mostra as suas.
+ */
+function summaryChips(breakdown: CeilingBreakdown): string[] {
+  switch (breakdown.method) {
+    case 'fcd-2-fases':
+      return [
+        `g ${percent(breakdown.dcf.growthRate)}`,
+        `g∞ ${percent(breakdown.dcf.perpetualGrowthRate)}`,
+        `k ${percent(breakdown.dcf.discountRate)}`,
+      ]
+    case 'ddm-gordon':
+      return [
+        `g ${percent(breakdown.ddm.growthRate)}`,
+        `g∞ ${percent(breakdown.ddm.perpetualGrowthRate)}`,
+        `k ${percent(breakdown.ddm.discountRate)}`,
+      ]
+    case 'renda-residual':
+      return [
+        `ROE ${percent(breakdown.residual.returnOnEquity)}`,
+        `k ${percent(breakdown.residual.discountRate)}`,
+        `P/VP justo ${breakdown.residual.justifiedPriceToBook.toFixed(2).replace('.', ',')}×`,
+      ]
+    case 'bazin':
+      return [
+        `DPA ${money(breakdown.bazin.dividendPerShare)}`,
+        `yield exigido ${percent(breakdown.bazin.requiredYield)}`,
+      ]
+    case 'numero-graham':
+      return [
+        `LPA ${money(breakdown.graham.earningsPerShare)}`,
+        `VPA ${money(breakdown.graham.bookValuePerShare)}`,
+      ]
+  }
+}
+
 function HistoryCard({ record }: { record: CeilingValuation }) {
-  const { ticker, ceilingPrice, marketPrice, safetyMargin, assumptions, breakdown, createdAt } =
-    record
+  const { ticker, ceilingPrice, marketPrice, safetyMargin, breakdown, method, createdAt } = record
   const marginClass =
     safetyMargin == null ? 'is-idle' : safetyMargin >= 0 ? 'is-margin' : 'is-negative'
 
@@ -96,11 +135,12 @@ function HistoryCard({ record }: { record: CeilingValuation }) {
         </span>
 
         <span className="criteria history-criteria">
-          <span className="criteria-item">g {percent(breakdown.growthRate)}</span>
-          <span className="criteria-item">g∞ {percent(breakdown.perpetualGrowthRate, 1)}</span>
-          <span className="criteria-item">k {percent(breakdown.discountRate)}</span>
-          <span className="criteria-item">ROE {percent(assumptions.returnOnEquity)}</span>
-          <span className="criteria-item">payout {percent(assumptions.payout, 0)}</span>
+          <span className="criteria-item">{CEILING_METHODS[method].label}</span>
+          {summaryChips(breakdown).map((chip) => (
+            <span className="criteria-item" key={chip}>
+              {chip}
+            </span>
+          ))}
         </span>
 
         <span className="history-recalc">Abrir na calculadora →</span>

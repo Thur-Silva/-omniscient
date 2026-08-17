@@ -1,16 +1,23 @@
 import {
-  missingForCeiling,
-  type StockFundamentals,
-  type StockFundamentalsProvider,
-} from '../../domain/stock/fundamentals'
+  computeCeiling,
+  missingInputs,
+  type CeilingParams,
+} from '../../domain/stock/ceiling'
 import {
-  EXPLICIT_YEARS,
-  PERPETUAL_GROWTH,
-  sustainableGrowth,
-  TwoPhaseDcfModel,
-  type TwoPhaseDcfBreakdown,
-} from '../../domain/valuation/models/two-phase-dcf'
+  averageDividend,
+  type DividendAverage,
+  type DividendHistoryProvider,
+} from '../../domain/stock/dividend-history'
+import type {
+  StockFundamentals,
+  StockFundamentalsProvider,
+} from '../../domain/stock/fundamentals'
+import { selectMethod, type MethodSelection } from '../../domain/stock/method-selection'
+import type { CeilingBreakdown } from '../../domain/valuation/breakdown'
+import type { CeilingMethodId, MethodInput } from '../../domain/valuation/methods'
+import { BAZIN_REQUIRED_YIELD } from '../../domain/valuation/models/bazin'
 import { calculateSafetyMargin } from '../../domain/valuation/models/safety-margin'
+import { EXPLICIT_YEARS, PERPETUAL_GROWTH } from '../../domain/valuation/models/two-phase-dcf'
 
 /**
  * Taxa de desconto inicial. É a premissa do documento do BBAS3 e não vem de API
@@ -18,7 +25,13 @@ import { calculateSafetyMargin } from '../../domain/valuation/models/safety-marg
  */
 export const DEFAULT_DISCOUNT_RATE = 0.2
 
-/** Os campos que a tela deixa o usuário editar. */
+/**
+ * Os campos que a tela deixa o usuário editar, para todos os métodos.
+ *
+ * Um formulário só, e não um por método: as premissas se repetem entre os
+ * modelos (ROE e payout definem g em três deles), e trocar de régua não deve
+ * apagar o que já foi corrigido à mão. Cada método lê o subconjunto que usa.
+ */
 export interface CeilingAssumptions {
   netIncome: number | null
   payout: number | null
@@ -32,38 +45,69 @@ export interface CeilingAssumptions {
   growthRates: (number | null)[]
   /** g pedido para a perpetuidade. O modelo limita em 3%. */
   perpetualGrowth: number | null
+  /** Dividendo por ação, base dos métodos de dividendo. */
+  dividendPerShare: number | null
+  /** Yield exigido do Bazin. */
+  requiredYield: number | null
+  earningsPerShare: number | null
+  bookValuePerShare: number | null
 }
 
 export interface PrefilledCeiling {
   fundamentals: StockFundamentals
   /** Já preenchido com o que a fonte trouxe. */
   assumptions: CeilingAssumptions
-  /** Rótulos do que a fonte não trouxe e precisa ser digitado. */
+  /** Método recomendado para este ativo, e a razão. */
+  selection: MethodSelection
+  /**
+   * Média de proventos dos últimos exercícios encerrados, quando o histórico veio
+   * — é a base que o método de Bazin pede, em vez do dividendo de 12 meses.
+   */
+  dividendAverage: DividendAverage | null
+  /** Rótulos do que falta para o método recomendado rodar. */
   missing: string[]
 }
 
 export interface CeilingResult {
-  breakdown: TwoPhaseDcfBreakdown
+  method: CeilingMethodId
+  breakdown: CeilingBreakdown
   /** Preço teto por ação. */
   ceiling: number
   /** Fração de desconto contra o preço de mercado, quando há preço. */
   safetyMargin: number | null
   marketPrice: number | null
+  growthRate: number | null
+  uncappedGrowthRate: number | null
+  growthCapped: boolean
+}
+
+/** Rótulos das premissas, para a tela dizer o que falta em português corrido. */
+const INPUT_LABELS: Record<MethodInput, string> = {
+  netIncome: 'lucro líquido',
+  payout: 'payout',
+  returnOnEquity: 'ROE',
+  discountRate: 'taxa de desconto',
+  sharesOutstanding: 'número de ações',
+  dividendPerShare: 'dividendo por ação',
+  requiredYield: 'yield exigido',
+  earningsPerShare: 'lucro por ação',
+  bookValuePerShare: 'valor patrimonial por ação',
 }
 
 /**
- * Preço teto de uma ação pelo fluxo de caixa descontado em duas fases.
+ * Preço teto de uma ação, pelo método que a natureza do ativo pede.
  *
- * O trabalho aqui é preencher as premissas com o que a fonte sabe, para o usuário
- * só corrigir o que estiver defasado. O cálculo em si é do domínio.
+ * O trabalho aqui é preencher as premissas com o que a fonte sabe e dizer qual
+ * régua se aplica, para o usuário só corrigir o que estiver defasado e poder
+ * trocar de método com consciência do que muda. O cálculo em si é do domínio.
  */
 export class EstimatePriceCeiling {
   private readonly stocks: StockFundamentalsProvider
-  private readonly model: TwoPhaseDcfModel
+  private readonly dividends: DividendHistoryProvider | null
 
-  constructor(stocks: StockFundamentalsProvider) {
+  constructor(stocks: StockFundamentalsProvider, dividends: DividendHistoryProvider | null = null) {
     this.stocks = stocks
-    this.model = new TwoPhaseDcfModel()
+    this.dividends = dividends
   }
 
   /** Ações que casam com o termo, por ticker ou nome. */
@@ -87,66 +131,138 @@ export class EstimatePriceCeiling {
     const fundamentals = await this.stocks.find(ticker, signal)
     if (fundamentals == null) return null
 
-    // g derivado de ROE e payout: é o valor "inflado" que a tela mostra por ano
-    // e deixa o usuário corrigir. Sem ROE ou payout, o campo vem vazio e o
-    // modelo deriva o mesmo caminho — a diferença é só de exibição.
-    const derivedGrowth =
-      fundamentals.payout != null && fundamentals.returnOnEquity != null
-        ? sustainableGrowth(fundamentals.returnOnEquity, fundamentals.payout)
-        : null
+    const selection = selectMethod(fundamentals)
+
+    /**
+     * O histórico de proventos custa uma requisição por ticker, então só é buscado
+     * aqui, na tela de um ativo. Falha ou ausência não impede o cálculo: os
+     * métodos de dividendo caem para a base de 12 meses, avisando na tela.
+     */
+    let dividendAverage: DividendAverage | null = null
+    if (this.dividends != null) {
+      try {
+        const history = await this.dividends.find(fundamentals.ticker, signal)
+        if (history != null) {
+          dividendAverage = averageDividend(history, new Date().getFullYear())
+        }
+      } catch {
+        dividendAverage = null
+      }
+    }
+
+    const assumptions: CeilingAssumptions = {
+      netIncome: fundamentals.netIncome,
+      payout: fundamentals.payout,
+      returnOnEquity: fundamentals.returnOnEquity,
+      // Único campo sem origem em dado: começa no padrão documentado.
+      discountRate: DEFAULT_DISCOUNT_RATE,
+      sharesOutstanding: fundamentals.sharesOutstanding,
+      growthRates: Array.from({ length: EXPLICIT_YEARS }, () =>
+        fundamentals.payout != null && fundamentals.returnOnEquity != null
+          ? fundamentals.returnOnEquity * (1 - Math.min(1, fundamentals.payout))
+          : null,
+      ),
+      perpetualGrowth: PERPETUAL_GROWTH,
+      /**
+       * Base de dividendo: o de 12 meses, que é o D₀ do desconto de dividendos.
+       * O Bazin pede a média de cinco exercícios, e a tela troca a base ao trocar
+       * de método — misturar as duas num campo só faria o DDM projetar
+       * crescimento a partir de uma média histórica, que já é passado.
+       */
+      dividendPerShare: fundamentals.dividendPerShare,
+      requiredYield: BAZIN_REQUIRED_YIELD,
+      earningsPerShare: fundamentals.earningsPerShare,
+      bookValuePerShare: fundamentals.bookValuePerShare,
+    }
 
     return {
       fundamentals,
-      assumptions: {
-        netIncome: fundamentals.netIncome,
-        payout: fundamentals.payout,
-        returnOnEquity: fundamentals.returnOnEquity,
-        // Único campo sem origem em dado: começa no padrão documentado.
-        discountRate: DEFAULT_DISCOUNT_RATE,
-        sharesOutstanding: fundamentals.sharesOutstanding,
-        growthRates: Array.from({ length: EXPLICIT_YEARS }, () => derivedGrowth),
-        perpetualGrowth: PERPETUAL_GROWTH,
-      },
-      missing: missingForCeiling(fundamentals),
+      assumptions,
+      selection,
+      dividendAverage,
+      missing: this.missingFor(selection.recommended, assumptions),
     }
+  }
+
+  /** Rótulos das premissas que faltam para um método, dadas as premissas atuais. */
+  missingFor(method: CeilingMethodId, assumptions: CeilingAssumptions): string[] {
+    const { stock, params } = toDomain(assumptions, null)
+    return missingInputs(method, stock, params).map((input) => INPUT_LABELS[input])
   }
 
   /**
-   * Calcula o teto. Devolve `null` enquanto faltar premissa, em vez de assumir
-   * valor no lugar do usuário.
+   * Calcula o teto pelo método pedido. Devolve `null` enquanto faltar premissa, em
+   * vez de assumir valor no lugar do usuário.
    */
-  compute(assumptions: CeilingAssumptions, marketPrice: number | null): CeilingResult | null {
-    const { netIncome, payout, returnOnEquity, discountRate, sharesOutstanding } = assumptions
-    if (
-      netIncome == null ||
-      payout == null ||
-      returnOnEquity == null ||
-      discountRate == null ||
-      sharesOutstanding == null
-    ) {
-      return null
-    }
+  compute(
+    method: CeilingMethodId,
+    assumptions: CeilingAssumptions,
+    marketPrice: number | null,
+  ): CeilingResult | null {
+    const { stock, params } = toDomain(assumptions, marketPrice)
+    if (missingInputs(method, stock, params).length > 0) return null
 
-    const breakdown = this.model.project({
-      netIncome,
-      payout,
-      returnOnEquity,
-      discountRate,
-      sharesOutstanding,
-      growthRates: assumptions.growthRates,
-      perpetualGrowth: assumptions.perpetualGrowth,
-    })
+    const computed = computeCeiling(method, stock, params)
 
     return {
-      breakdown,
-      ceiling: breakdown.fairValue,
+      method: computed.method,
+      breakdown: computed.breakdown,
+      ceiling: computed.ceiling,
       safetyMargin:
         marketPrice != null && marketPrice > 0
-          ? calculateSafetyMargin(breakdown.fairValue, marketPrice)
+          ? calculateSafetyMargin(computed.ceiling, marketPrice)
           : null,
       marketPrice,
+      growthRate: computed.growthRate,
+      uncappedGrowthRate: computed.uncappedGrowthRate,
+      growthCapped: computed.growthCapped,
     }
   }
+}
+
+/**
+ * Premissas da tela no formato do domínio.
+ *
+ * O DPA vai por `params`, não por `fundamentals`: dessa forma ele conta como base
+ * informada, e a trava de dividendo não recorrente — que existe para o dado cru da
+ * fonte no ranking — não recusa um número que o próprio usuário digitou ou que
+ * veio da média de cinco anos.
+ */
+function toDomain(
+  assumptions: CeilingAssumptions,
+  marketPrice: number | null,
+): { stock: StockFundamentals; params: CeilingParams } {
+  const stock: StockFundamentals = {
+    ticker: '',
+    name: '',
+    sector: null,
+    sectorName: null,
+    subsectorName: null,
+    segmentName: null,
+    price: marketPrice,
+    netIncome: assumptions.netIncome,
+    earningsPerShare: assumptions.earningsPerShare,
+    payout: assumptions.payout,
+    returnOnEquity: assumptions.returnOnEquity,
+    sharesOutstanding: assumptions.sharesOutstanding,
+    bookValuePerShare: assumptions.bookValuePerShare,
+    priceToEarnings: null,
+    averageDailyLiquidity: null,
+    dividendYield: null,
+    dividendPerShare: assumptions.dividendPerShare,
+    revenueCagr5: null,
+  }
+
+  const params: CeilingParams = {
+    // `missingInputs` reclama de premissa ausente; NaN aqui viraria essa reclamação.
+    discountRate: assumptions.discountRate ?? Number.NaN,
+    requiredYield: assumptions.requiredYield ?? Number.NaN,
+    dividendPerShare: assumptions.dividendPerShare,
+    growthRates: assumptions.growthRates,
+    perpetualGrowth: assumptions.perpetualGrowth,
+  }
+
+  return { stock, params }
 }
 
 function rankMatch(stock: StockFundamentals, needle: string): number {

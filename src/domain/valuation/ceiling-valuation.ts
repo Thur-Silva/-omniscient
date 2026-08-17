@@ -1,4 +1,5 @@
-import type { TwoPhaseDcfBreakdown, TwoPhaseDcfProjection } from './models/two-phase-dcf'
+import type { CeilingBreakdown, CeilingSavedAssumptions } from './breakdown'
+import type { CeilingMethodId } from './methods'
 
 /**
  * Registro persistido de um preço teto calculado.
@@ -19,10 +20,15 @@ export interface CeilingValuation {
   ceilingPrice: number
   /** Fração de desconto contra o mercado; null quando não havia preço. */
   safetyMargin: number | null
-  /** Premissas utilizadas, já completas — o modelo só grava cálculo pronto. */
-  assumptions: TwoPhaseDcfProjection
-  /** Memória de cálculo: anos, perpetuidade (g limitado a 3%) e teto. */
-  breakdown: TwoPhaseDcfBreakdown
+  /**
+   * Método usado. Sem ele o registro seria ambíguo: o mesmo ativo tem tetos
+   * diferentes por régua, e um histórico que não diz qual foi não é auditável.
+   */
+  method: CeilingMethodId
+  /** Premissas utilizadas — só as que o método pediu. */
+  assumptions: CeilingSavedAssumptions
+  /** Memória de cálculo, no formato do método usado. */
+  breakdown: CeilingBreakdown
   createdAt: string
 }
 

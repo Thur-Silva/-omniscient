@@ -2,11 +2,11 @@ import { useEffect, useRef } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EXPLICIT_YEARS, PERPETUAL_GROWTH } from '../../../../domain/valuation/models/two-phase-dcf'
-import {
-  usePriceCeiling,
-  type CeilingForm,
-  type CeilingRequiredField,
-} from '../../../hooks/usePriceCeiling'
+import { CEILING_METHODS } from '../../../../domain/valuation/methods'
+import MethodBreakdown from './MethodBreakdown'
+import MethodPicker from './MethodPicker'
+import type { CeilingAssumptions } from '../../../../application/stock/price-ceiling'
+import { usePriceCeiling, type CeilingForm } from '../../../hooks/usePriceCeiling'
 import { useCurrentUser } from '../../../hooks/useCurrentUser'
 import AnimatedNumber from '../../instrument/AnimatedNumber'
 import SafetyGauge from '../../instrument/SafetyGauge'
@@ -30,8 +30,14 @@ function percent(value: number | null | undefined, digits = 2): string {
   return value == null ? '—' : `${(value * 100).toFixed(digits)}%`
 }
 
+/**
+ * Campo que existe nas duas pontas: no formulário (texto) e nas premissas
+ * (número). É o conjunto que a filtragem por método usa.
+ */
+type PremiseField = Extract<keyof CeilingForm, keyof CeilingAssumptions>
+
 interface FieldSpec {
-  field: CeilingRequiredField
+  field: PremiseField
   label: string
   suffix: string
   hint: string
@@ -68,6 +74,30 @@ const FIELDS: FieldSpec[] = [
     suffix: 'un',
     hint: 'Derivado de capitalização ÷ preço.',
   },
+  {
+    field: 'dividendPerShare',
+    label: 'Dividendo por ação',
+    suffix: 'R$',
+    hint: 'Média dos exercícios encerrados quando o histórico veio; senão, DY × preço dos 12 meses.',
+  },
+  {
+    field: 'requiredYield',
+    label: 'Yield exigido',
+    suffix: '%',
+    hint: 'A renda que você exige do preço pago. Os 6% são o padrão do método de Bazin.',
+  },
+  {
+    field: 'earningsPerShare',
+    label: 'Lucro por ação',
+    suffix: 'R$',
+    hint: 'LPA dos últimos 12 meses, como a fonte publica.',
+  },
+  {
+    field: 'bookValuePerShare',
+    label: 'Valor patrimonial por ação',
+    suffix: 'R$',
+    hint: 'VPA da fonte. É a base dos métodos patrimoniais.',
+  },
 ]
 
 export default function PriceCeilingPage() {
@@ -87,6 +117,10 @@ export default function PriceCeilingPage() {
     validation,
     loading,
     error,
+    method,
+    setMethod,
+    methodOverridden,
+    dividendBase,
     loadSaved,
     save,
     saving,
@@ -97,23 +131,38 @@ export default function PriceCeilingPage() {
   const { isLoaded: userLoaded, isSignedIn, user } = useCurrentUser()
   const reduce = useReducedMotion()
 
-  // Vindo do histórico (`/teto/historico` → `?ticker=X`): escolhe o ativo já
-  // com os fundamentos da fonte. O parâmetro é consumido uma vez e limpo da
-  // URL, para o "Trocar ação" não reescolher o mesmo ativo no retorno.
-  const [searchParams, setSearchParams] = useSearchParams()
-  const consumedTicker = useRef(searchParams.get('ticker'))
+  /**
+   * Ativo vindo por link (`/teto?ticker=X`), do histórico ou do ranking.
+   *
+   * O parâmetro permanece na URL, o que também torna a página recarregável e
+   * compartilhável, e a guarda é o ativo em tela — não um ref de "já consumido".
+   *
+   * Guardas por ref não funcionam aqui. Com o ref iniciado no próprio valor, a
+   * primeira passada via `consumido === ticker` e não selecionava nada. Com o ref
+   * vazio, o StrictMode invoca o efeito duas vezes na mesma instância: a primeira
+   * marcava o ref e disparava a busca, a limpeza do hook abortava essa busca, e a
+   * segunda passada encontrava o ref já marcado e desistia — a tela ficava na busca
+   * em branco, sem erro nenhum, porque um pedido abortado é descartado em silêncio.
+   * Comparar com o ativo em tela torna o efeito idempotente: a segunda passada
+   * refaz a busca abortada, e depois de selecionado ele não dispara mais.
+   */
+  const [searchParams] = useSearchParams()
+  const selectedTicker = selected?.fundamentals.ticker ?? null
 
   useEffect(() => {
-    const ticker = searchParams.get('ticker')
-    if (ticker == null || consumedTicker.current === ticker) return
-    consumedTicker.current = ticker
+    const ticker = searchParams.get('ticker')?.trim().toUpperCase()
+    if (!ticker || selectedTicker === ticker) return
     void select(ticker)
-    setSearchParams({}, { replace: true })
-  }, [searchParams, setSearchParams, select])
+  }, [searchParams, select, selectedTicker])
 
   const fundamentals = selected?.fundamentals ?? null
   const marketPrice = fundamentals?.price ?? null
-  const breakdown = result?.breakdown ?? null
+  const descriptor = CEILING_METHODS[method]
+  // A memória de cálculo do FCD tem tabela própria nesta página; os outros métodos
+  // renderizam a sua em `MethodBreakdown`, cada um com a conta que de fato faz.
+  const dcf = result?.breakdown.method === 'fcd-2-fases' ? result.breakdown.dcf : null
+  const otherBreakdown =
+    result != null && result.breakdown.method !== 'fcd-2-fases' ? result.breakdown : null
   const canSave = userLoaded && isSignedIn && user != null
 
   // Vindo do histórico (`/teto/salvo/:id`): abre a calculadora com as premissas
@@ -149,12 +198,11 @@ export default function PriceCeilingPage() {
         </div>
       </header>
 
+      {/* O cabeçalho descreve a régua em uso, não uma fórmula fixa. */}
       <div className="criteria">
-        <span className="criteria-item">FCD em 2 fases</span>
-        <span className="criteria-item">{EXPLICIT_YEARS} anos + perpetuidade</span>
-        <span className="criteria-item">g∞ limitado a {(PERPETUAL_GROWTH * 100).toFixed(0)}%</span>
-        <span className="criteria-item">g = ROE × (1 − payout)</span>
-        <span className="criteria-item">desconta só o distribuível: FCFE = LL × (1 − g/ROE)</span>
+        <span className="criteria-item">{descriptor.label}</span>
+        <span className="criteria-item">{descriptor.formula}</span>
+        <span className="criteria-item">desconta {descriptor.flow}</span>
       </div>
 
       {error && (
@@ -249,11 +297,24 @@ export default function PriceCeilingPage() {
                         delay={0.05}
                       />
                     </span>
-                    <span className="verdict-label">preço teto por ação</span>
+                    <span className="verdict-label">
+                      preço teto por ação · {descriptor.short}
+                    </span>
                     <span className="verdict-note">
-                      Crescimento de {percent(breakdown?.growthRate)} a.a. na fase explícita, vindo
-                      de ROE × (1 − payout). A perpetuidade responde por{' '}
-                      {percent(breakdown?.terminalShare, 1)} do valor.
+                      {dcf != null ? (
+                        <>
+                          Crescimento de {percent(dcf.growthRate)} a.a. na fase explícita, vindo de
+                          ROE × (1 − payout). A perpetuidade responde por{' '}
+                          {percent(dcf.terminalShare, 1)} do valor.
+                        </>
+                      ) : (
+                        <>
+                          Por {descriptor.label}: {descriptor.formula}.
+                          {result.growthRate != null
+                            ? ` Crescimento aplicado de ${percent(result.growthRate)} a.a.`
+                            : ''}
+                        </>
+                      )}
                     </span>
                   </div>
 
@@ -278,10 +339,12 @@ export default function PriceCeilingPage() {
                       </span>
                       <span className="tally-label">Margem de segurança</span>
                     </div>
-                    <div className="tally-row">
-                      <span className="tally-value">{bigMoney(breakdown?.totalPresentValue)}</span>
-                      <span className="tally-label">Valor presente total</span>
-                    </div>
+                    {dcf != null && (
+                      <div className="tally-row">
+                        <span className="tally-value">{bigMoney(dcf.totalPresentValue)}</span>
+                        <span className="tally-label">Valor presente total</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -342,7 +405,17 @@ export default function PriceCeilingPage() {
             </div>
           )}
 
-          {/* Premissas ─ preenchidas pela fonte, editáveis */}
+          {/* Método ─ qual régua avalia este ativo, e por quê */}
+          <MethodPicker
+            method={method}
+            selection={selected.selection}
+            overridden={methodOverridden}
+            onSelect={setMethod}
+          />
+
+          {/* Premissas ─ preenchidas pela fonte, editáveis. Só as que o método em
+              uso consome: mostrar ROE num teto de Bazin sugeriria influência que
+              a conta não tem. */}
           <section>
             <div className="section-head">
               <h2 className="section-title">Premissas</h2>
@@ -360,7 +433,9 @@ export default function PriceCeilingPage() {
 
             <div className="card">
               <div className="form-grid">
-                {FIELDS.map((spec) => {
+                {FIELDS.filter((spec) =>
+                  (CEILING_METHODS[method].inputs as readonly string[]).includes(spec.field),
+                ).map((spec) => {
                   const fromSource = selected.assumptions[spec.field] != null
                   return (
                     <label className="field" key={spec.field}>
@@ -390,6 +465,34 @@ export default function PriceCeilingPage() {
                   )
                 })}
               </div>
+
+              {/* De onde vem o dividendo: o Bazin é definido sobre a média dos
+                  exercícios encerrados, o DDM sobre o dividendo corrente. */}
+              {(method === 'bazin' || method === 'ddm-gordon') && (
+                <p className="muted picker-hint">
+                  {dividendBase === 'manual' ? (
+                    <>Base: o valor que você digitou.</>
+                  ) : dividendBase === 'media' && selected.dividendAverage != null ? (
+                    <>
+                      Base: média de {selected.dividendAverage.years[0].year}–
+                      {selected.dividendAverage.years[selected.dividendAverage.years.length - 1].year}
+                      , {money(selected.dividendAverage.average)} por ação
+                      {selected.dividendAverage.incomplete
+                        ? ' (a fonte tem menos de cinco exercícios)'
+                        : ''}
+                      .
+                    </>
+                  ) : (
+                    <>
+                      Base: dividendo dos últimos 12 meses, de DY × preço
+                      {selected.dividendAverage != null
+                        ? `. A média de ${selected.dividendAverage.years[0].year}–${selected.dividendAverage.years[selected.dividendAverage.years.length - 1].year} é ${money(selected.dividendAverage.average)}`
+                        : ''}
+                      .
+                    </>
+                  )}
+                </p>
+              )}
             </div>
           </section>
 
@@ -400,12 +503,12 @@ export default function PriceCeilingPage() {
               crescimento exige — a regra de Basileia/Solvência. g é editável ano
               a ano: é a correção do valor inflado. Na perpetuidade o modelo
               limita g em 3%. */}
-          {breakdown && (
+          {dcf && (
             <section>
               <div className="section-head">
                 <h2 className="section-title">Memória de cálculo</h2>
                 <span className="section-count">
-                  k = {form.discountRate}% · g = {percent(breakdown.growthRate)}
+                  k = {form.discountRate}% · g = {percent(dcf.growthRate)}
                 </span>
               </div>
 
@@ -419,7 +522,7 @@ export default function PriceCeilingPage() {
                   <span className="calc-col-value">Taxa de desconto (k)</span>
                 </div>
 
-                {breakdown.years.map((year) => (
+                {dcf.years.map((year) => (
                   <div className="calc-row calc-table-row" key={year.year}>
                     <span className="calc-col-year calc-label">Ano {year.year}</span>
                     <span className="calc-col-value calc-value">{bigMoney(year.netIncome)}</span>
@@ -452,15 +555,15 @@ export default function PriceCeilingPage() {
                     Ano {EXPLICIT_YEARS + 1} → ∞
                     <small>perpetuidade</small>
                   </span>
-                  <span className="calc-col-value calc-value">{bigMoney(breakdown.terminalNetIncome)}</span>
+                  <span className="calc-col-value calc-value">{bigMoney(dcf.terminalNetIncome)}</span>
                   <span className="calc-col-value calc-value">
-                    {bigMoney(breakdown.terminalFcfe)}
+                    {bigMoney(dcf.terminalFcfe)}
                     <small>
                       distribui{' '}
-                      {percent(breakdown.terminalFcfe / breakdown.terminalNetIncome, 1)}
+                      {percent(dcf.terminalFcfe / dcf.terminalNetIncome, 1)}
                     </small>
                   </span>
-                  <span className="calc-col-value calc-value">{bigMoney(breakdown.terminalPresentValue)}</span>
+                  <span className="calc-col-value calc-value">{bigMoney(dcf.terminalPresentValue)}</span>
                   <span className="calc-col-growth calc-value">
                     <input
                       className="growth-input"
@@ -468,27 +571,27 @@ export default function PriceCeilingPage() {
                       inputMode="decimal"
                       autoComplete="off"
                       aria-label="Taxa de crescimento perpétua"
-                      placeholder={percent(breakdown.perpetualGrowthRate)}
+                      placeholder={percent(dcf.perpetualGrowthRate)}
                       value={form.perpetualGrowth}
                       onChange={(e) => setField('perpetualGrowth', e.target.value)}
                     />
                     <i>%</i>
-                    {breakdown.perpetualGrowthCapped && (
+                    {dcf.perpetualGrowthCapped && (
                       <small className="cap-note">
-                        pedido {percent(breakdown.requestedPerpetualGrowth, 1)} · limitado a{' '}
+                        pedido {percent(dcf.requestedPerpetualGrowth, 1)} · limitado a{' '}
                         {(PERPETUAL_GROWTH * 100).toFixed(0)}%
                       </small>
                     )}
                   </span>
-                  <span className="calc-col-value calc-value">{percent(breakdown.discountRate)}</span>
+                  <span className="calc-col-value calc-value">{percent(dcf.discountRate)}</span>
                 </div>
 
                 <div className="calc-row is-subtotal">
                   <span className="calc-label">
                     Fase explícita
-                    <small>{percent(breakdown.explicitShare, 1)} do valuation</small>
+                    <small>{percent(dcf.explicitShare, 1)} do valuation</small>
                   </span>
-                  <span className="price calc-value">{bigMoney(breakdown.explicitPresentValue)}</span>
+                  <span className="price calc-value">{bigMoney(dcf.explicitPresentValue)}</span>
                 </div>
 
                 <div className="calc-row is-subtotal">
@@ -496,41 +599,52 @@ export default function PriceCeilingPage() {
                     Perpetuidade
                     <small>
                       fluxo distribuível do ano {EXPLICIT_YEARS + 1} (lucro de{' '}
-                      {bigMoney(breakdown.terminalNetIncome)} ×{' '}
-                      {percent(breakdown.terminalFcfe / breakdown.terminalNetIncome, 0)}) ÷ (k −{' '}
-                      {percent(breakdown.perpetualGrowthRate, 0)}) ={' '}
-                      {bigMoney(breakdown.terminalValue)} no ano {EXPLICIT_YEARS}, trazido a hoje ·{' '}
-                      {percent(breakdown.terminalShare, 1)} do valuation
+                      {bigMoney(dcf.terminalNetIncome)} ×{' '}
+                      {percent(dcf.terminalFcfe / dcf.terminalNetIncome, 0)}) ÷ (k −{' '}
+                      {percent(dcf.perpetualGrowthRate, 0)}) ={' '}
+                      {bigMoney(dcf.terminalValue)} no ano {EXPLICIT_YEARS}, trazido a hoje ·{' '}
+                      {percent(dcf.terminalShare, 1)} do valuation
                     </small>
                   </span>
-                  <span className="price calc-value">{bigMoney(breakdown.terminalPresentValue)}</span>
+                  <span className="price calc-value">{bigMoney(dcf.terminalPresentValue)}</span>
                 </div>
 
                 <div className="calc-row is-total">
                   <span className="calc-label">
                     Preço teto por ação
                     <small>
-                      {bigMoney(breakdown.totalPresentValue)} ÷{' '}
+                      {bigMoney(dcf.totalPresentValue)} ÷{' '}
                       {integer.format(Number(form.sharesOutstanding) || 0)} ações
                     </small>
                   </span>
-                  <span className="calc-value is-ceiling">{money(breakdown.fairValue)}</span>
+                  <span className="calc-value is-ceiling">{money(dcf.fairValue)}</span>
                 </div>
               </div>
+            </section>
+          )}
+
+          {/* Memória de cálculo dos demais métodos: cada conta na sua ordem */}
+          {otherBreakdown && (
+            <section>
+              <div className="section-head">
+                <h2 className="section-title">Memória de cálculo</h2>
+                <span className="section-count">{descriptor.formula}</span>
+              </div>
+              <MethodBreakdown breakdown={otherBreakdown} />
             </section>
           )}
         </>
       )}
 
       <p className="quote-note">
-        Modelo de fluxo de caixa descontado em duas fases, conforme{' '}
-        <code>src/docs/BBAS3.MD</code>: {EXPLICIT_YEARS} anos de projeção explícita crescendo a
-        ROE × (1 − payout), mais perpetuidade pelo modelo de Gordon a{' '}
-        {(PERPETUAL_GROWTH * 100).toFixed(0)}% a.a. O fluxo descontado é o distribuível ao
-        acionista — FCFE = LL × (1 − g/ROE) —: o modelo retém o capital que o crescimento exige
-        (regra de Basileia/Solvência) e desconta apenas o que pode sair como dividendo/JCP, em
-        vez do lucro integral, que assumiria payout de 100% com ROE infinito. Fundamentos vindos
-        do StatusInvest, que não publica API oficial. Isto não é recomendação de investimento.
+        Cinco réguas, escolhidas pela natureza do ativo: o fluxo que chega ao acionista e a base
+        estável não são os mesmos numa concessionária, num banco e numa cíclica de commodity. O
+        FCD em duas fases segue <code>src/docs/BBAS3.MD</code> — {EXPLICIT_YEARS} anos crescendo a
+        ROE × (1 − payout) e perpetuidade de Gordon a {(PERPETUAL_GROWTH * 100).toFixed(0)}% a.a.,
+        descontando o distribuível (FCFE = LL × (1 − g/ROE)) em vez do lucro integral, que
+        assumiria payout de 100% com ROE infinito. Fundamentos do StatusInvest, que não publica API
+        oficial; o histórico de proventos vem do endpoint interno de mesma origem. Isto não é
+        recomendação de investimento.
       </p>
     </div>
   )

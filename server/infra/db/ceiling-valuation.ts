@@ -4,9 +4,10 @@ import type {
   CeilingValuationRepository,
 } from '../../../src/domain/valuation/ceiling-valuation'
 import type {
-  TwoPhaseDcfBreakdown,
-  TwoPhaseDcfProjection,
-} from '../../../src/domain/valuation/models/two-phase-dcf'
+  CeilingBreakdown,
+  CeilingSavedAssumptions,
+} from '../../../src/domain/valuation/breakdown'
+import type { CeilingMethodId } from '../../../src/domain/valuation/methods'
 
 interface CeilingRow {
   id: string
@@ -15,6 +16,7 @@ interface CeilingRow {
   market_price: string | null
   ceiling_price: string
   safety_margin: string | null
+  method: string
   assumptions: unknown
   breakdown: unknown
   created_at: Date
@@ -34,8 +36,9 @@ function toCeilingValuation(row: CeilingRow): CeilingValuation {
     safetyMargin: row.safety_margin == null ? null : Number(row.safety_margin),
     // Os shapes foram validados na escrita (mesmas interfaces de domínio), então
     // o cast aqui é a confiança de que o que saiu é o que entrou.
-    assumptions: row.assumptions as TwoPhaseDcfProjection,
-    breakdown: row.breakdown as TwoPhaseDcfBreakdown,
+    method: row.method as CeilingMethodId,
+    assumptions: row.assumptions as CeilingSavedAssumptions,
+    breakdown: row.breakdown as CeilingBreakdown,
     createdAt: row.created_at.toISOString(),
   }
 }
@@ -58,23 +61,25 @@ export class PostgresCeilingValuationRepository implements CeilingValuationRepos
   async save(record: Omit<CeilingValuation, 'id' | 'createdAt'>): Promise<CeilingValuation> {
     const { rows } = await this.pool.query<CeilingRow>(
       `insert into ceiling_valuation
-         (user_id, ticker, market_price, ceiling_price, safety_margin, assumptions, breakdown, created_at)
-       values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, now())
+         (user_id, ticker, market_price, ceiling_price, safety_margin, method, assumptions, breakdown, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, now())
        on conflict (user_id, ticker) do update
          set market_price  = excluded.market_price,
              ceiling_price = excluded.ceiling_price,
              safety_margin = excluded.safety_margin,
+             method        = excluded.method,
              assumptions   = excluded.assumptions,
              breakdown     = excluded.breakdown,
              created_at    = excluded.created_at
        returning id, user_id, ticker, market_price, ceiling_price, safety_margin,
-                 assumptions, breakdown, created_at`,
+                 method, assumptions, breakdown, created_at`,
       [
         record.userId,
         record.ticker,
         record.marketPrice,
         record.ceilingPrice,
         record.safetyMargin,
+        record.method,
         JSON.stringify(record.assumptions),
         JSON.stringify(record.breakdown),
       ],
@@ -86,7 +91,7 @@ export class PostgresCeilingValuationRepository implements CeilingValuationRepos
   async list(userId: string, _signal?: AbortSignal): Promise<CeilingValuation[]> {
     const { rows } = await this.pool.query<CeilingRow>(
       `select id, user_id, ticker, market_price, ceiling_price, safety_margin,
-              assumptions, breakdown, created_at
+              method, assumptions, breakdown, created_at
          from ceiling_valuation
         where user_id = $1
         order by created_at desc`,
@@ -98,7 +103,7 @@ export class PostgresCeilingValuationRepository implements CeilingValuationRepos
   async get(id: string, userId: string, _signal?: AbortSignal): Promise<CeilingValuation | null> {
     const { rows } = await this.pool.query<CeilingRow>(
       `select id, user_id, ticker, market_price, ceiling_price, safety_margin,
-              assumptions, breakdown, created_at
+              method, assumptions, breakdown, created_at
          from ceiling_valuation
         where id = $1 and user_id = $2`,
       [id, userId],
