@@ -1,4 +1,5 @@
 import { motion, useReducedMotion } from 'motion/react'
+import { Link } from 'react-router-dom'
 import { EXPLICIT_YEARS, PERPETUAL_GROWTH } from '../../../../domain/valuation/models/two-phase-dcf'
 import { usePriceCeiling, type CeilingForm } from '../../../hooks/usePriceCeiling'
 import AnimatedNumber from '../../instrument/AnimatedNumber'
@@ -91,11 +92,16 @@ export default function PriceCeilingPage() {
     <div className="page stack-lg">
       <header className="page-head">
         <h1 className="page-title">Preço teto</h1>
-        {selected && (
-          <button className="button button-ghost" type="button" onClick={clear}>
-            Trocar ação
-          </button>
-        )}
+        <div className="section-actions">
+          <Link className="button button-ghost" to="/acoes">
+            Ver ranking
+          </Link>
+          {selected && (
+            <button className="button button-ghost" type="button" onClick={clear}>
+              Trocar ação
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="criteria">

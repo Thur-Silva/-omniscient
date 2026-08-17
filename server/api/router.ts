@@ -3,6 +3,7 @@ import { CachedUpstreamFetch, UpstreamUnavailableError } from '../application/ca
 import { getPool, hasDatabaseUrl } from '../infra/db/client'
 import { PostgresFetchLogRepository } from '../infra/db/fetch-log-repository'
 import { PostgresSnapshotRepository } from '../infra/db/snapshot-repository'
+import { RankStocks } from '../application/rank-stocks'
 import {
   buildSourceKey,
   buildUpstreamUrl,
@@ -49,6 +50,37 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: R
   res.end(text)
 }
 
+export const STOCK_RANKING_PATH = '/api/ranking/acoes'
+
+/**
+ * Ranking de ações. O cálculo e a gravação no banco moram no servidor, então o
+ * browser recebe a lista pronta e não recalcula nada.
+ */
+async function handleStockRanking(
+  parsed: URL,
+  res: ServerResponse,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  // k chega em pontos percentuais; o domínio normaliza e limita a faixa.
+  const raw = Number(parsed.searchParams.get('k') ?? '20')
+  const requested = Number.isFinite(raw) ? raw / 100 : 0.2
+
+  try {
+    const served = await new RankStocks(services()?.cache ?? null, env).execute(requested)
+    sendJson(res, 200, served.ranking, {
+      'X-Cache': served.origin === 'upstream' ? 'miss' : served.origin === 'cache' ? 'hit' : 'stale',
+      'X-Captured-At': served.capturedAt.toISOString(),
+      ...(served.staleReason ? { 'X-Stale-Reason': served.staleReason } : {}),
+    })
+  } catch (error) {
+    const status = error instanceof UpstreamUnavailableError ? error.status : 502
+    sendJson(res, status === 200 ? 502 : status, {
+      error: true,
+      message: error instanceof Error ? error.message : 'falha ao montar o ranking',
+    })
+  }
+}
+
 /**
  * Encaminha as chamadas de API pelo cache de servidor.
  *
@@ -63,6 +95,13 @@ export async function handleApiRequest(
 ): Promise<boolean> {
   const rawUrl = req.url ?? '/'
   const parsed = new URL(rawUrl, 'http://localhost')
+
+  // Rota computada: sai antes do proxy porque não há upstream 1-para-1.
+  if (parsed.pathname === STOCK_RANKING_PATH) {
+    await handleStockRanking(parsed, res, env)
+    return true
+  }
+
   const upstream = matchUpstream(parsed.pathname)
   if (upstream == null) return false
 

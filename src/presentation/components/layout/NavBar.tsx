@@ -27,8 +27,10 @@ const NAV_ITEMS: { to: string; label: string; icon: ReactNode }[] = [
     ),
   },
   {
-    to: '/teto',
-    label: 'Teto',
+    // A calculadora de uma ação vive em /teto, alcançável daqui. Sete abas na
+    // base não caberiam num celular, e os dois assuntos são o mesmo.
+    to: '/acoes',
+    label: 'Ações',
     icon: (
       <>
         <path d="M3 7h14" />

@@ -3,6 +3,7 @@ import ProtectedRoute from '../components/auth/ProtectedRoute'
 import MainLayout from '../components/layout/Mainlayout'
 import AssetsPage from '../components/pages/assets/AssetsPage'
 import PriceCeilingPage from '../components/pages/ceiling/PriceCeilingPage'
+import StockOpportunitiesPage from '../components/pages/stocks/StockOpportunitiesPage'
 import SignInPage from '../components/pages/auth/SignInPage'
 import SignUpPage from '../components/pages/auth/SignUpPage'
 import OpportunitiesPage from '../components/pages/opportunities/OpportunitiesPage'
@@ -22,6 +23,7 @@ export default function AppRoutes() {
         <Route element={<MainLayout />}>
           <Route index element={<AssetsPage />} />
           <Route path="fiis" element={<OpportunitiesPage />} />
+          <Route path="acoes" element={<StockOpportunitiesPage />} />
           <Route path="teto" element={<PriceCeilingPage />} />
           <Route path="triagem" element={<ScreenerPage />} />
           <Route path="profile" element={<UserProfile />} />

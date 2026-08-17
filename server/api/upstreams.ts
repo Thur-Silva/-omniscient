@@ -45,6 +45,12 @@ export function matchUpstream(pathname: string): UpstreamConfig | null {
   return UPSTREAMS.find((upstream) => pathname.startsWith(upstream.prefix)) ?? null
 }
 
+export function upstreamByName(name: string): UpstreamConfig {
+  const upstream = UPSTREAMS.find((candidate) => candidate.name === name)
+  if (upstream == null) throw new Error(`upstream desconhecido: ${name}`)
+  return upstream
+}
+
 /**
  * Chave de cache estável para um pedido.
  *

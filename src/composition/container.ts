@@ -3,6 +3,7 @@ import { LoadPortfolio } from '../application/portfolio/load-portfolio'
 import { ScreenWatchlist } from '../application/screener/screen-watchlist'
 import { EstimatePriceCeiling } from '../application/stock/price-ceiling'
 import { StatusInvestFiiProvider } from '../infra/statusinvest/fii-provider'
+import { StockRankingApi } from '../infra/api/stock-ranking'
 import { StatusInvestStockProvider } from '../infra/statusinvest/stock-provider'
 import type { QuoteProvider } from '../domain/asset/quote-provider'
 import type { AssetUniverseProvider } from '../domain/asset/universe'
@@ -49,6 +50,12 @@ export const findFiiOpportunities = new FindFiiOpportunities(
 // Ações saem do mesmo proxy, em outra categoria da busca avançada.
 export const estimatePriceCeiling = new EstimatePriceCeiling(
   new StatusInvestStockProvider(fundamentalsHttp),
+)
+
+// O ranking vem do nosso servidor, já calculado e guardado no banco. Timeout
+// folgado porque a primeira chamada da janela ainda vai à fonte.
+export const stockRankingApi = new StockRankingApi(
+  new HttpClient({ baseUrl: appConfig.rankingBaseUrl, timeoutMs: 40_000 }),
 )
 
 export interface UserServices {

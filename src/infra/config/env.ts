@@ -13,6 +13,8 @@ export interface AppConfig {
   fundamentalsBaseUrl: string
   /** Chave pública do Clerk. Publicável por definição — não é segredo. */
   clerkPublishableKey: string
+  /** Nosso servidor, que serve rankings ja calculados. */
+  rankingBaseUrl: string
 }
 
 export const appConfig: AppConfig = {
@@ -20,4 +22,5 @@ export const appConfig: AppConfig = {
   apiBaseUrl: import.meta.env.VITE_API_URL ?? '/api',
   fundamentalsBaseUrl: import.meta.env.VITE_FUNDAMENTALS_BASE_URL ?? '/api/fundamentos',
   clerkPublishableKey: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? '',
+  rankingBaseUrl: import.meta.env.VITE_RANKING_BASE_URL ?? '/api/ranking',
 }

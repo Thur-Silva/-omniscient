@@ -105,6 +105,73 @@ src/
 A dependência aponta sempre para dentro: `presentation → application → domain`.
 A infra implementa as portas do domínio e é ligada em `composition/container.ts`.
 
+## Ações descontadas (`/acoes`)
+
+Ranking automático do mercado pelo preço teto.
+
+**Elegibilidade:** lucro líquido positivo, cotação, liquidez média diária ≥ R$ 2
+milhões e as quatro premissas presentes na fonte.
+
+**Ranking:** eixo único — a **margem de desconto** contra o preço teto, do maior
+desconto para o menor. Empate cai para o ticker, só para a ordem ser estável
+entre duas apurações seguidas.
+
+Diferente do ranking de FIIs, aqui não há soma de colocações. A margem já sai do
+fluxo de caixa descontado, que embute lucro, payout, ROE e k; somar P/L a ela
+pesaria lucro duas vezes e deslocaria a ordem para longe do desconto, que é
+justamente o que se quer medir. O P/L continua na lista e no detalhe, como
+referência de tela.
+
+A taxa de desconto é escolhida por você (10% a 25%), e o resultado muda bastante:
+o teto do PETR4 vai de R$ 178,67 com k de 10% a R$ 71,08 com k de 25%.
+
+Exemplo real (14/08/2026, k = 20%, 617 ações → 107 aprovadas):
+
+```
+#   ticker   margem   P/L    teto      preco
+1   RIAA3     65,5%   2,3   19,82       6,84
+2   JHSF3     60,9%   3,5   27,64      10,81   g limitado
+3   PETR4     53,5%   4,1   91,69      42,63   g limitado
+4   PINE4     52,4%   4,2   21,17      10,08   g limitado
+5   BRSR6     52,2%   3,3   27,81      13,28
+```
+
+Das 617 ações do universo, 107 passam: 347 caem por não ter as premissas na fonte,
+130 por liquidez e 33 por premissas que o modelo recusa.
+
+### O limite de crescimento
+
+O crescimento é truncado em `k − 1pp`. Sem isso o ranking vira lixo: a fonte
+reporta **ROE de 366,8% para EQPA3**, o que daria `g` de 361% e um teto de
+R$ 3.654 contra um preço de R$ 5,17 — primeiro lugar por dado ruim. As ações
+truncadas ficam marcadas com *g limitado* na lista, com o valor original
+riscado no detalhe. Com k de 20% são 7; com k de 10%, 38.
+
+### Guardado no banco
+
+O ranking é calculado **no servidor** e gravado no Postgres, porque só o servidor
+alcança o banco. São duas camadas de cache encaixadas, cada uma com janela de 10
+minutos:
+
+| Chave | Conteúdo | Depende de k |
+| --- | --- | --- |
+| `fundamentos:/category/…CategoryType=1` | resposta crua do StatusInvest (443 KB) | não |
+| `ranking:acoes?k=20.0&v=2` | ranking já calculado (57 KB) | sim |
+
+O `v` na chave é a versão da metodologia — hoje 2, porque a 1 somava colocação de
+margem com colocação de P/L. Sem trocar a chave, um snapshot de até 10 minutos
+antes seguiria sendo servido na ordem antiga.
+
+Como a chave dos fundamentos não tem `k`, **uma só ida à fonte alimenta todos os
+k** e também a página `/teto`. Medido: `chamadas=1` no `api_fetch_log` depois de
+pedir k=20 e k=15.
+
+Dentro da janela nem a fonte nem o cálculo são refeitos: a primeira chamada leva
+~770 ms, as seguintes ~20 ms com `X-Cache: hit`.
+
+O `k` é arredondado em meio ponto percentual e limitado a 4%–40%
+(`normalizeDiscountRate`), senão um `k` livre viraria chave infinita no banco.
+
 ## Preço teto de ações (`/teto`)
 
 Valuation por **fluxo de caixa descontado em duas fases** sobre o lucro líquido,
