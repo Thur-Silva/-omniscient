@@ -20,7 +20,6 @@ const REASON_LABELS: Record<RejectionReason, string> = {
   'liquidez-baixa': 'liquidez abaixo de R$ 1M/dia',
   'sem-dados': 'sem DY, P/VP ou liquidez na fonte',
   'pvp-fora-da-faixa': 'P/VP fora de 0,80–1,05',
-  'dy-acima-do-teto': 'DY acima de 16% a.a.',
   'dy-nulo': 'sem distribuição',
 }
 
@@ -87,7 +86,6 @@ export default function OpportunitiesPage() {
         <span className="criteria-item">
           liquidez ≥ R$ {integer.format(CRITERIA.minDailyLiquidity / 1_000_000)}M/dia
         </span>
-        <span className="criteria-item">DY ≤ {CRITERIA.maxDividendYield}% a.a.</span>
         <span className="criteria-item">
           P/VP entre {CRITERIA.minPriceToBook.toFixed(2).replace('.', ',')} e{' '}
           {CRITERIA.maxPriceToBook.toFixed(2).replace('.', ',')}

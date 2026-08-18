@@ -6,12 +6,6 @@ import type { FiiFundamentals } from './fundamentals'
 export const CRITERIA = {
   /** Abaixo disso não aparece: não há como entrar nem sair da posição. */
   minDailyLiquidity: 1_000_000,
-  /**
-   * Teto de DY. Acima disso a distribuição costuma ser insustentável — venda de
-   * ativo, resultado não recorrente ou erro de dado. É filtro de armadilha, não
-   * de qualidade.
-   */
-  maxDividendYield: 16,
   /** Piso de P/VP: desconto exagerado normalmente esconde problema no ativo. */
   minPriceToBook: 0.8,
   /** Teto de P/VP: acima disso paga-se prêmio sobre o patrimônio. */
@@ -22,7 +16,6 @@ export type RejectionReason =
   | 'sem-dados'
   | 'liquidez-baixa'
   | 'dy-nulo'
-  | 'dy-acima-do-teto'
   | 'pvp-fora-da-faixa'
 
 export interface RankedFii {
@@ -55,7 +48,6 @@ function reject(fii: FiiFundamentals): RejectionReason | null {
   if (dy == null || pvp == null || liquidity == null) return 'sem-dados'
   if (liquidity < CRITERIA.minDailyLiquidity) return 'liquidez-baixa'
   if (dy <= 0) return 'dy-nulo'
-  if (dy > CRITERIA.maxDividendYield) return 'dy-acima-do-teto'
   if (pvp < CRITERIA.minPriceToBook || pvp > CRITERIA.maxPriceToBook) return 'pvp-fora-da-faixa'
   return null
 }
@@ -80,7 +72,6 @@ export function rankOpportunities(universe: readonly FiiFundamentals[]): Opportu
     'sem-dados': 0,
     'liquidez-baixa': 0,
     'dy-nulo': 0,
-    'dy-acima-do-teto': 0,
     'pvp-fora-da-faixa': 0,
   }
 
