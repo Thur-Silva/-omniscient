@@ -9,12 +9,11 @@ interface CopyableValueProps {
 }
 
 /**
- * Valor de uma célula de detalhe clicável: copia o texto exibido para a área de
- * transferência e avisa com um "· copiado" breve.
+ * Valor de uma célula de detalhe clicável: copia o número exibido para a área
+ * de transferência e avisa com um "· copiado" breve.
  *
- * Copia o `textContent` do próprio `<dd>`, então qualquer formatação do filho
- * (moeda, percentual, sub-anotações em `<small>`) sai junto, sem duplicar
- * regra de formatação aqui.
+ * Extrai do `textContent` do `<dd>` apenas o número ("R$ 0,10" → "0,10");
+ * células sem número (nome da empresa) copiam o texto como está.
  */
 export default function CopyableValue({ children, label, className }: CopyableValueProps) {
   const ref = useRef<HTMLElement | null>(null)
@@ -36,8 +35,14 @@ export default function CopyableValue({ children, label, className }: CopyableVa
       onClick={(event) => {
         event.stopPropagation()
         if (copied || ref.current == null) return
-        const text = ref.current.textContent?.trim() ?? ''
-        if (text === '') return
+        const raw = ref.current.textContent?.trim() ?? ''
+        if (raw === '') return
+        // Copia só o número: "R$ 0,10" vira "0,10", "26,78%" vira "26,78",
+        // "1º" vira "1". Sem número no texto (nome da empresa, "—"), copia o
+        // texto como está — e quando há dois números (ex. "6,57% de 366,8%"),
+        // fica com o primeiro, que é o valor principal da célula.
+        const numeric = raw.match(/-?\d[\d.,]*/)
+        const text = numeric?.[0] ?? raw
         void navigator.clipboard
           .writeText(text)
           .then(() => {
