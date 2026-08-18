@@ -2,6 +2,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useId, useState } from 'react'
 import { FII_CATEGORY_LABELS } from '../../../../domain/fii/fundamentals'
 import type { RankedFii } from '../../../../domain/fii/ranking'
+import CopyableTicker from '../../instrument/CopyableTicker'
+import CopyableValue from '../../instrument/CopyableValue'
 
 interface OpportunityRowProps {
   entry: RankedFii
@@ -37,7 +39,7 @@ export default function OpportunityRow({ entry }: OpportunityRowProps) {
         <span className="rank-position">{position}</span>
 
         <span className="rank-identity">
-          <strong className="ticker">{f.ticker}</strong>
+          <CopyableTicker ticker={f.ticker} />
           <span>
             <i className={`cat-dot is-${f.category}`} aria-hidden="true" />
             {FII_CATEGORY_LABELS[f.category]}
@@ -85,47 +87,51 @@ export default function OpportunityRow({ entry }: OpportunityRowProps) {
             <dl className="rank-detail-inner">
               <div className="detail-cell">
                 <dt>Colocação DY</dt>
-                <dd>{dividendYieldRank}º</dd>
+                <CopyableValue label="Colocação DY">{dividendYieldRank}º</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Colocação P/VP</dt>
-                <dd>{priceToBookRank}º</dd>
+                <CopyableValue label="Colocação P/VP">{priceToBookRank}º</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Soma</dt>
-                <dd className="is-value">{score}</dd>
+                <CopyableValue label="Soma" className="is-value">{score}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Cotação</dt>
-                <dd>{money(f.price)}</dd>
+                <CopyableValue label="Cotação">{money(f.price)}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>VP por cota</dt>
-                <dd>{money(f.bookValuePerShare)}</dd>
+                <CopyableValue label="VP por cota">{money(f.bookValuePerShare)}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Último provento</dt>
-                <dd>{money(f.lastDividend)}</dd>
+                <CopyableValue label="Último provento">{money(f.lastDividend)}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Liquidez diária</dt>
-                <dd>
+                <CopyableValue label="Liquidez diária">
                   {f.averageDailyLiquidity == null
                     ? '—'
                     : `R$ ${compact.format(f.averageDailyLiquidity)}`}
-                </dd>
+                </CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Patrimônio</dt>
-                <dd>{f.netWorth == null ? '—' : `R$ ${compact.format(f.netWorth)}`}</dd>
+                <CopyableValue label="Patrimônio">
+                  {f.netWorth == null ? '—' : `R$ ${compact.format(f.netWorth)}`}
+                </CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Cotistas</dt>
-                <dd>{f.shareholders == null ? '—' : compact.format(f.shareholders)}</dd>
+                <CopyableValue label="Cotistas">
+                  {f.shareholders == null ? '—' : compact.format(f.shareholders)}
+                </CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Fundo</dt>
-                <dd className="rank-name">{f.name}</dd>
+                <CopyableValue label="Fundo" className="rank-name">{f.name}</CopyableValue>
               </div>
             </dl>
           </motion.div>

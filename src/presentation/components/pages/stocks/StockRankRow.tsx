@@ -2,6 +2,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useId, useState } from 'react'
 import type { RankedStock } from '../../../../domain/stock/ranking'
 import { CEILING_METHODS, FAMILY_LABELS } from '../../../../domain/valuation/methods'
+import CopyableTicker from '../../instrument/CopyableTicker'
+import CopyableValue from '../../instrument/CopyableValue'
 
 interface StockRankRowProps {
   entry: RankedStock
@@ -58,7 +60,7 @@ export default function StockRankRow({ entry }: StockRankRowProps) {
         <span className="rank-position">{position}</span>
 
         <span className="rank-identity">
-          <strong className="ticker">{f.ticker}</strong>
+          <CopyableTicker ticker={f.ticker} />
           <span>
             <em className={`method-tag is-${family}`}>{descriptor.short}</em>
             {f.sector ?? f.name}
@@ -118,73 +120,80 @@ export default function StockRankRow({ entry }: StockRankRowProps) {
             <dl className="rank-detail-inner">
               <div className="detail-cell">
                 <dt>Preço teto</dt>
-                <dd className="is-value">{money(ceiling)}</dd>
+                <CopyableValue label="Preço teto" className="is-value">{money(ceiling)}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Preço de mercado</dt>
-                <dd>{money(f.price)}</dd>
+                <CopyableValue label="Preço de mercado">{money(f.price)}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Desconto</dt>
-                <dd className={`is-value ${safetyMargin >= 0 ? 'positive' : 'negative'}`}>
+                <CopyableValue
+                  label="Desconto"
+                  className={`is-value ${safetyMargin >= 0 ? 'positive' : 'negative'}`}
+                >
                   {`${safetyMargin > 0 ? '+' : ''}${(safetyMargin * 100).toFixed(1)}%`}
-                </dd>
+                </CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>P/L</dt>
-                <dd>{priceToEarnings == null ? '—' : priceToEarnings.toFixed(1)}</dd>
+                <CopyableValue label="P/L">
+                  {priceToEarnings == null ? '—' : priceToEarnings.toFixed(1)}
+                </CopyableValue>
               </div>
               {growthRate != null && (
                 <div className="detail-cell">
                   <dt>Crescimento (g)</dt>
-                  <dd>
+                  <CopyableValue label="Crescimento (g)">
                     {percent(growthRate)}
                     {uncappedGrowthRate != null && (
                       <small className="capped-note"> de {percent(uncappedGrowthRate, 1)}</small>
                     )}
-                  </dd>
+                  </CopyableValue>
                 </div>
               )}
               <div className="detail-cell">
                 <dt>ROE</dt>
-                <dd>{percent(f.returnOnEquity)}</dd>
+                <CopyableValue label="ROE">{percent(f.returnOnEquity)}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Payout</dt>
-                <dd>{percent(f.payout, 1)}</dd>
+                <CopyableValue label="Payout">{percent(f.payout, 1)}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Dividendo (12m)</dt>
-                <dd>
+                <CopyableValue label="Dividendo (12m)">
                   {money(f.dividendPerShare)}
                   {f.dividendYield != null && (
                     <small className="aside-note"> DY {percent(f.dividendYield, 1)}</small>
                   )}
-                </dd>
+                </CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>VPA</dt>
-                <dd>{money(f.bookValuePerShare)}</dd>
+                <CopyableValue label="VPA">{money(f.bookValuePerShare)}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Lucro líquido</dt>
-                <dd>{f.netIncome == null ? '—' : `R$ ${compact.format(f.netIncome)}`}</dd>
+                <CopyableValue label="Lucro líquido">
+                  {f.netIncome == null ? '—' : `R$ ${compact.format(f.netIncome)}`}
+                </CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Receita (CAGR 5a)</dt>
-                <dd>{percent(f.revenueCagr5, 1)}</dd>
+                <CopyableValue label="Receita (CAGR 5a)">{percent(f.revenueCagr5, 1)}</CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Liquidez diária</dt>
-                <dd>
+                <CopyableValue label="Liquidez diária">
                   {f.averageDailyLiquidity == null
                     ? '—'
                     : `R$ ${compact.format(f.averageDailyLiquidity)}`}
-                </dd>
+                </CopyableValue>
               </div>
               <div className="detail-cell">
                 <dt>Empresa</dt>
-                <dd className="rank-name">{f.name}</dd>
+                <CopyableValue label="Empresa" className="rank-name">{f.name}</CopyableValue>
               </div>
             </dl>
           </motion.div>

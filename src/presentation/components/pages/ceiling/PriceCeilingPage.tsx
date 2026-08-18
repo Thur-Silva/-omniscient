@@ -10,6 +10,7 @@ import { usePriceCeiling, type CeilingForm } from '../../../hooks/usePriceCeilin
 import { useCurrentUser } from '../../../hooks/useCurrentUser'
 import AnimatedNumber from '../../instrument/AnimatedNumber'
 import SafetyGauge from '../../instrument/SafetyGauge'
+import CopyableTicker from '../../instrument/CopyableTicker'
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 const compact = new Intl.NumberFormat('pt-BR', {
@@ -240,7 +241,7 @@ export default function PriceCeilingPage() {
                 <li key={stock.ticker}>
                   <button type="button" className="market-row" onClick={() => void select(stock.ticker)}>
                     <span className="picker-identity">
-                      <strong className="ticker">{stock.ticker}</strong>
+                      <CopyableTicker ticker={stock.ticker} />
                       <span>{stock.name}</span>
                     </span>
                     <span className="market-figures">

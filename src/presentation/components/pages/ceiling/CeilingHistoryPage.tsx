@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { CeilingValuation } from '../../../../domain/valuation/ceiling-valuation'
+import CopyableTicker from '../../instrument/CopyableTicker'
 import type { CeilingBreakdown } from '../../../../domain/valuation/breakdown'
 import { CEILING_METHODS } from '../../../../domain/valuation/methods'
 import { useCeilingHistory } from '../../../hooks/useCeilingHistory'
@@ -119,7 +120,7 @@ function HistoryCard({ record }: { record: CeilingValuation }) {
       <Link className={`history-card ${marginClass}`} to={`/teto/salvo/${record.id}`}>
         <span className="history-head">
           <span className="picker-identity">
-            <strong className="ticker">{ticker}</strong>
+            <CopyableTicker ticker={ticker} />
             <span>salvo em {when.format(new Date(createdAt))}</span>
           </span>
           <span className={`history-margin ${marginClass}`}>

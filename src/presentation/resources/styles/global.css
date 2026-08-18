@@ -121,6 +121,39 @@ body {
   letter-spacing: 0.02em;
 }
 
+.ticker.is-copyable {
+  cursor: copy;
+}
+
+.ticker.is-copyable:hover {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.ticker .copied-note {
+  color: var(--jade);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* Células de detalhe clicáveis (cota, liquidez, …): copiam o valor exibido. */
+.rank-detail-inner dd.is-copyable {
+  cursor: copy;
+}
+
+.rank-detail-inner dd.is-copyable:hover {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.rank-detail-inner dd .copied-note {
+  color: var(--jade);
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .muted {
   color: var(--graphite);
 }
