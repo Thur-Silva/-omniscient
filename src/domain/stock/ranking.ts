@@ -8,7 +8,7 @@ import { selectMethod } from './method-selection'
 
 export const STOCK_CRITERIA = {
   /** Abaixo disso não aparece: não há como entrar nem sair da posição. */
-  minDailyLiquidity: 2_000_000,
+  minDailyLiquidity: 1_000_000,
   /**
    * Folga mínima entre a taxa de desconto e o crescimento da fase explícita.
    *

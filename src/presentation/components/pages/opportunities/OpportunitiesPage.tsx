@@ -17,7 +17,7 @@ const SORTS: { key: SortKey; label: string }[] = [
 ]
 
 const REASON_LABELS: Record<RejectionReason, string> = {
-  'liquidez-baixa': 'liquidez abaixo de R$ 2M/dia',
+  'liquidez-baixa': 'liquidez abaixo de R$ 1M/dia',
   'sem-dados': 'sem DY, P/VP ou liquidez na fonte',
   'pvp-fora-da-faixa': 'P/VP fora de 0,80–1,05',
   'dy-acima-do-teto': 'DY acima de 16% a.a.',

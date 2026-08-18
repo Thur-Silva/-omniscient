@@ -5,7 +5,7 @@ import type { FiiFundamentals } from './fundamentals'
  */
 export const CRITERIA = {
   /** Abaixo disso não aparece: não há como entrar nem sair da posição. */
-  minDailyLiquidity: 2_000_000,
+  minDailyLiquidity: 1_000_000,
   /**
    * Teto de DY. Acima disso a distribuição costuma ser insustentável — venda de
    * ativo, resultado não recorrente ou erro de dado. É filtro de armadilha, não
@@ -71,7 +71,7 @@ function reject(fii: FiiFundamentals): RejectionReason | null {
  * Somar colocações em vez de olhar um índice só evita que um DY alto isolado, ou
  * um P/VP baixo isolado, carregue o fundo para o topo sozinho.
  *
- * Liquidez não entra na soma: ela é critério de corte (R$ 2 milhões) e, depois,
+ * Liquidez não entra na soma: ela é critério de corte (R$ 1 milhão) e, depois,
  * apenas um modo de ordenar a lista já ranqueada.
  */
 export function rankOpportunities(universe: readonly FiiFundamentals[]): OpportunityRanking {
