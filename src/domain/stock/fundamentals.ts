@@ -35,6 +35,20 @@ export interface StockFundamentals {
   dividendPerShare: number | null
   /** Crescimento anual composto da receita em 5 anos, como fração. */
   revenueCagr5: number | null
+  /** Capitalização de mercado em reais: o peso do capital próprio no WACC. */
+  marketCap: number | null
+  /** Resultado operacional dos últimos 12 meses, em reais. Base do FCFF. */
+  ebit: number | null
+  /** Valor da firma em reais: capitalização mais dívida líquida, como a fonte vê. */
+  enterpriseValue: number | null
+  /** Dívida líquida em reais. Negativo é caixa líquido. */
+  netDebt: number | null
+  /** Dívida líquida sobre patrimônio líquido. Relavanca o beta do setor. */
+  netDebtToEquity: number | null
+  /** Dívida líquida sobre EBIT. Define o degrau de spread de crédito. */
+  netDebtToEbit: number | null
+  /** Retorno sobre o capital investido como fração: 0,1111 é 11,11%. */
+  returnOnInvestedCapital: number | null
 }
 
 /**

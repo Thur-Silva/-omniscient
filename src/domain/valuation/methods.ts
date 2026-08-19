@@ -11,6 +11,7 @@
 
 export type CeilingMethodId =
   | 'fcd-2-fases'
+  | 'fcff-wacc'
   | 'ddm-gordon'
   | 'bazin'
   | 'renda-residual'
@@ -37,6 +38,12 @@ export type MethodInput =
   | 'requiredYield'
   | 'earningsPerShare'
   | 'bookValuePerShare'
+  | 'ebit'
+  | 'taxRate'
+  | 'returnOnInvestedCapital'
+  | 'revenueGrowth'
+  | 'netDebt'
+  | 'wacc'
 
 export interface CeilingMethodDescriptor {
   id: CeilingMethodId
@@ -67,6 +74,25 @@ export const CEILING_METHODS: Record<CeilingMethodId, CeilingMethodDescriptor> =
     limits: 'Extrapola o lucro dos últimos 12 meses. Em cíclica de commodity isso significa projetar lucro de pico; em banco, ignorar que capital regulatório não é caixa livre.',
     source: 'Fluxo de caixa descontado em dois estágios (Gordon–Shapiro na perpetuidade), conforme src/docs/BBAS3.MD.',
     inputs: ['netIncome', 'payout', 'returnOnEquity', 'discountRate', 'sharesOutstanding'],
+  },
+  'fcff-wacc': {
+    id: 'fcff-wacc',
+    label: 'FCFF em 2 fases (WACC)',
+    short: 'FCFF',
+    flow: 'fluxo de caixa da firma (FCFF = EBIT × (1 − t) × (1 − g/ROIC))',
+    formula: 'Σ FCFFₜ/(1+WACC)ᵗ + [FCFF₄/(WACC − g∞)]/(1+WACC)³, menos a dívida líquida, dividido pelas ações',
+    fits: 'Empresa alavancada e não financeira: desconta o caixa que sobra para todos os investidores ao custo dos dois — capital próprio e de terceiros — e só então separa o do acionista, subtraindo a dívida líquida. É a régua certa quando a dívida é parte da história.',
+    limits: 'Extrapola o EBIT dos últimos 12 meses, então em cíclica projeta pico ou fundo de ciclo. O valor do acionista sai por diferença: erro na dívida líquida da fonte contamina o teto na razão da alavancagem. Não se aplica a banco e seguradora, onde dívida é insumo.',
+    source: 'Fluxo de caixa livre da firma descontado ao WACC, com crescimento sustentado por reinvestimento (g = ROIC × taxa de reinvestimento), como em Damodaran, "Investment Valuation".',
+    inputs: [
+      'ebit',
+      'taxRate',
+      'returnOnInvestedCapital',
+      'revenueGrowth',
+      'netDebt',
+      'sharesOutstanding',
+      'wacc',
+    ],
   },
   'ddm-gordon': {
     id: 'ddm-gordon',
@@ -133,10 +159,24 @@ export const CEILING_METHOD_IDS = Object.keys(CEILING_METHODS) as CeilingMethodI
  * uma régua que não é a dela.
  */
 export const FAMILY_PREFERENCE: Record<MethodFamily, readonly CeilingMethodId[]> = {
-  pagadora: ['ddm-gordon', 'bazin', 'fcd-2-fases', 'renda-residual'],
-  crescimento: ['fcd-2-fases', 'renda-residual'],
+  pagadora: ['ddm-gordon', 'bazin', 'fcd-2-fases', 'fcff-wacc', 'renda-residual'],
+  crescimento: ['fcd-2-fases', 'fcff-wacc', 'renda-residual'],
   financeiro: ['renda-residual', 'ddm-gordon'],
-  ciclica: ['numero-graham', 'renda-residual'],
+  ciclica: ['numero-graham', 'fcff-wacc', 'renda-residual'],
+}
+
+/**
+ * Métodos que descontam fluxo do acionista, e por isso exigem Ke (CAPM), contra o
+ * único que desconta fluxo da firma e exige WACC.
+ *
+ * A distinção não é rótulo: descontar fluxo do acionista ao WACC credita a ele o
+ * benefício fiscal da dívida sem cobrar o serviço dessa dívida, e o contrário
+ * subestima a empresa alavancada. Quem decide a taxa é o fluxo, não a tela.
+ */
+export const FIRM_FLOW_METHODS: readonly CeilingMethodId[] = ['fcff-wacc']
+
+export function usesWacc(method: CeilingMethodId): boolean {
+  return FIRM_FLOW_METHODS.includes(method)
 }
 
 export const FAMILY_LABELS: Record<MethodFamily, string> = {

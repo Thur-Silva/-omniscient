@@ -33,6 +33,18 @@ export const UPSTREAMS: UpstreamConfig[] = [
     timeoutMs: 20_000,
   },
   {
+    /**
+     * Banco Central. Série pública, sem chave e sem cabeçalho de navegador: passa
+     * pelo proxy só para ganhar a janela de cache de 10 minutos no banco, do
+     * contrário cada abertura de tela consultaria a mesma Selic do dia.
+     */
+    prefix: '/api/bcb',
+    name: 'bcb',
+    origin: 'https://api.bcb.gov.br',
+    headers: () => ({ Accept: 'application/json' }),
+    timeoutMs: 15_000,
+  },
+  {
     prefix: '/api/fundamentos',
     name: 'fundamentos',
     origin: 'https://statusinvest.com.br',

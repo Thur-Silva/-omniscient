@@ -87,6 +87,43 @@ export function toStockFundamentals(item: StatusInvestStockItem): StockFundament
   const roe = toNumber(item.roe)
   const revenueCagr5 = toNumber(item.receitas_cagr5)
 
+  /**
+   * EBIT reconstruído: P/EBIT é preço sobre EBIT por ação, então capitalização
+   * dividida por P/EBIT devolve o EBIT da empresa. Conferido no PETR4 em
+   * 19/08/2026: R$ 585,8 bi / 2,96 = R$ 197,9 bi de resultado operacional.
+   */
+  const priceToEbit = toPositive(item.p_ebit)
+  const ebit = marketCap != null && priceToEbit != null ? marketCap / priceToEbit : null
+
+  /** Valor da firma pelo múltiplo que a fonte publica sobre o mesmo EBIT. */
+  const evToEbit = toPositive(item.ev_ebit)
+  const enterpriseValue = ebit != null && evToEbit != null ? ebit * evToEbit : null
+
+  const netDebtToEquity = toNumber(item.dividaliquidapatrimonioliquido)
+  const bookValuePerShare = toNumber(item.vpa)
+
+  /**
+   * Dívida líquida, por dois caminhos, na ordem de preferência:
+   *
+   * 1. `EV − capitalização`, quando a fonte traz os dois múltiplos. É a medida de
+   *    mercado, coerente com os pesos do WACC.
+   * 2. `D/PL × patrimônio contábil`, quando falta múltiplo. É contábil, e por isso
+   *    fica em segundo: no PETR4 os dois caminhos dão R$ 372 bi e R$ 331 bi — a
+   *    diferença é minoritário e critério de consolidação, não erro de conta.
+   */
+  const bookEquity =
+    bookValuePerShare != null && sharesOutstanding != null
+      ? bookValuePerShare * sharesOutstanding
+      : null
+  const netDebt =
+    enterpriseValue != null && marketCap != null
+      ? enterpriseValue - marketCap
+      : netDebtToEquity != null && bookEquity != null
+        ? netDebtToEquity * bookEquity
+        : null
+
+  const roic = toNumber(item.roic)
+
   /** Dividendo por ação dos 12 meses: o yield aplicado ao preço. */
   const dividendPerShare =
     dividendYield != null && dividendYield > 0 && price != null
@@ -107,12 +144,20 @@ export function toStockFundamentals(item: StatusInvestStockItem): StockFundament
     // Chega em pontos percentuais; o domínio raciocina em fração.
     returnOnEquity: roe != null ? roe / 100 : null,
     sharesOutstanding,
-    bookValuePerShare: toNumber(item.vpa),
+    bookValuePerShare,
     priceToEarnings: toNumber(item.p_l),
     averageDailyLiquidity: toNumber(item.liquidezmediadiaria),
     dividendYield: dividendYield != null ? dividendYield / 100 : null,
     dividendPerShare,
     // CAGR de receita também chega em pontos percentuais.
     revenueCagr5: revenueCagr5 != null ? revenueCagr5 / 100 : null,
+    marketCap,
+    ebit,
+    enterpriseValue,
+    netDebt,
+    netDebtToEquity,
+    netDebtToEbit: toNumber(item.dividaliquidaebit),
+    // ROIC também chega em pontos percentuais.
+    returnOnInvestedCapital: roic != null ? roic / 100 : null,
   }
 }

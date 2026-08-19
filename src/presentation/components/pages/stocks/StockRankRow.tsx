@@ -1,7 +1,7 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useId, useState } from 'react'
 import type { RankedStock } from '../../../../domain/stock/ranking'
-import { CEILING_METHODS, FAMILY_LABELS } from '../../../../domain/valuation/methods'
+import { CEILING_METHODS, FAMILY_LABELS, usesWacc } from '../../../../domain/valuation/methods'
 import CopyableTicker from '../../instrument/CopyableTicker'
 import CopyableValue from '../../instrument/CopyableValue'
 
@@ -36,6 +36,12 @@ export default function StockRankRow({ entry }: StockRankRowProps) {
     adjustedByBehavior,
     ceiling,
     safetyMargin,
+    discountRateUsed,
+    costOfEquity,
+    wacc,
+    beta,
+    betaUnlevered,
+    debtToEquity,
     growthRate,
     uncappedGrowthRate,
     growthCapped,
@@ -141,6 +147,35 @@ export default function StockRankRow({ entry }: StockRankRowProps) {
                   {priceToEarnings == null ? '—' : priceToEarnings.toFixed(1)}
                 </CopyableValue>
               </div>
+              {discountRateUsed != null && (
+                <div className="detail-cell">
+                  <dt>{usesWacc(method) ? 'WACC' : 'Retorno exigido (Ke)'}</dt>
+                  <CopyableValue label={usesWacc(method) ? 'WACC' : 'Retorno exigido (Ke)'}>
+                    {percent(discountRateUsed, 1)}
+                    {usesWacc(method) && (
+                      <small className="aside-note"> Ke {percent(costOfEquity, 1)}</small>
+                    )}
+                    {!usesWacc(method) && wacc != null && (
+                      <small className="aside-note"> WACC {percent(wacc, 1)}</small>
+                    )}
+                  </CopyableValue>
+                </div>
+              )}
+              {beta != null && (
+                <div className="detail-cell">
+                  <dt>Beta</dt>
+                  <CopyableValue label="Beta">
+                    {beta.toFixed(2).replace('.', ',')}
+                    {betaUnlevered != null && debtToEquity != null && (
+                      <small className="aside-note">
+                        {' '}
+                        setor {betaUnlevered.toFixed(2).replace('.', ',')} · D/E{' '}
+                        {debtToEquity.toFixed(2).replace('.', ',')}
+                      </small>
+                    )}
+                  </CopyableValue>
+                </div>
+              )}
               {growthRate != null && (
                 <div className="detail-cell">
                   <dt>Crescimento (g)</dt>

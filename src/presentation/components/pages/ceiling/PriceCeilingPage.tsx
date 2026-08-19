@@ -2,9 +2,10 @@ import { useEffect, useRef } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EXPLICIT_YEARS, PERPETUAL_GROWTH } from '../../../../domain/valuation/models/two-phase-dcf'
-import { CEILING_METHODS } from '../../../../domain/valuation/methods'
+import { CEILING_METHODS, usesWacc } from '../../../../domain/valuation/methods'
 import MethodBreakdown from './MethodBreakdown'
 import MethodPicker from './MethodPicker'
+import CostOfCapitalPanel from './CostOfCapitalPanel'
 import type { CeilingAssumptions } from '../../../../application/stock/price-ceiling'
 import { usePriceCeiling, type CeilingForm } from '../../../hooks/usePriceCeiling'
 import { useCurrentUser } from '../../../hooks/useCurrentUser'
@@ -65,9 +66,15 @@ const FIELDS: FieldSpec[] = [
   },
   {
     field: 'discountRate',
-    label: 'Taxa de desconto (k)',
+    label: 'Custo de capital próprio (Ke)',
     suffix: '%',
-    hint: 'Retorno mínimo que você exige. Não vem de API.',
+    hint: 'Sai do CAPM, acima. Editar aqui é exigir retorno diferente do custo de oportunidade.',
+  },
+  {
+    field: 'wacc',
+    label: 'Custo médio de capital (WACC)',
+    suffix: '%',
+    hint: 'Ke e custo da dívida ponderados pelos pesos de mercado. É a taxa do fluxo da firma.',
   },
   {
     field: 'sharesOutstanding',
@@ -99,6 +106,36 @@ const FIELDS: FieldSpec[] = [
     suffix: 'R$',
     hint: 'VPA da fonte. É a base dos métodos patrimoniais.',
   },
+  {
+    field: 'ebit',
+    label: 'EBIT',
+    suffix: 'R$ bi',
+    hint: 'Resultado operacional dos 12 meses, de capitalização ÷ P/EBIT. É o fluxo antes de credor e imposto.',
+  },
+  {
+    field: 'taxRate',
+    label: 'Alíquota de imposto',
+    suffix: '%',
+    hint: 'IRPJ + CSLL do lucro real. A efetiva de cada empresa varia com JCP e incentivo.',
+  },
+  {
+    field: 'returnOnInvestedCapital',
+    label: 'ROIC',
+    suffix: '%',
+    hint: 'Retorno sobre o capital investido. Diz quanto capital cada ponto de crescimento consome.',
+  },
+  {
+    field: 'revenueGrowth',
+    label: 'Crescimento da receita',
+    suffix: '%',
+    hint: 'CAGR de 5 anos, a fase explícita do fluxo da firma — que não cresce por retenção de lucro.',
+  },
+  {
+    field: 'netDebt',
+    label: 'Dívida líquida',
+    suffix: 'R$ bi',
+    hint: 'De valor da firma − capitalização. Negativo é caixa líquido, e soma ao valor da ação.',
+  },
 ]
 
 export default function PriceCeilingPage() {
@@ -108,6 +145,8 @@ export default function PriceCeilingPage() {
     results,
     searching,
     selected,
+    costOfCapital,
+    rateFromCapm,
     form,
     setField,
     select,
@@ -413,6 +452,21 @@ export default function PriceCeilingPage() {
             overridden={methodOverridden}
             onSelect={setMethod}
           />
+
+          {/* Custo de capital ─ de onde sai a taxa. Só aparece para método que
+              desconta fluxo: Bazin e número de Graham não descontam nada, e um
+              painel de Ke ali sugeriria influência que a conta não tem. */}
+          {((CEILING_METHODS[method].inputs as readonly string[]).includes('discountRate') ||
+            usesWacc(method)) && (
+            <CostOfCapitalPanel
+              method={method}
+              costOfCapital={costOfCapital}
+              riskFree={selected.riskFree}
+              form={form}
+              setField={setField}
+              fromCapm={rateFromCapm}
+            />
+          )}
 
           {/* Premissas ─ preenchidas pela fonte, editáveis. Só as que o método em
               uso consome: mostrar ROE num teto de Bazin sugeriria influência que

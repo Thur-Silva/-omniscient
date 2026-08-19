@@ -105,7 +105,17 @@ export interface MethodSelection {
   adjustedByBehavior: boolean
 }
 
-function structuralFamily(stock: StockFundamentals): { family: MethodFamily; source: string } {
+/**
+ * Família pela taxonomia B3, antes de qualquer ajuste por comportamento.
+ *
+ * Exportada porque o beta também precisa dela: relavancar um banco pela dívida
+ * líquida devolveria beta sem sentido, e essa exceção é estrutural — não pode
+ * depender do payout que a empresa pagou nos últimos 12 meses.
+ */
+export function structuralFamily(stock: StockFundamentals): {
+  family: MethodFamily
+  source: string
+} {
   const segment = stock.segmentName?.trim()
   if (segment && SEGMENT_FAMILY[segment]) {
     return { family: SEGMENT_FAMILY[segment], source: segment }

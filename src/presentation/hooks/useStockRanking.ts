@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { stockRankingApi } from '../../composition/container'
-import type { RankingMode, StockRanking } from '../../domain/stock/ranking'
+import type { RankingMode, RateMode, StockRanking } from '../../domain/stock/ranking'
 import { BAZIN_REQUIRED_YIELD } from '../../domain/valuation/models/bazin'
 
 /** Retornos exigidos usuais. Conjunto discreto para o cache não virar chave infinita. */
@@ -11,6 +11,9 @@ export const REQUIRED_YIELD_OPTIONS = [0.05, 0.06, 0.07, 0.08, 0.1] as const
 
 export interface UseStockRankingResult {
   ranking: StockRanking | null
+  /** De onde sai a taxa: CAPM/WACC por ativo, ou a taxa fixa escolhida. */
+  rateMode: RateMode
+  setRateMode: (mode: RateMode) => void
   discountRate: number
   setDiscountRate: (rate: number) => void
   /** Régua: por setor ou um método fixo para toda a lista. */
@@ -25,6 +28,10 @@ export interface UseStockRankingResult {
 
 export function useStockRanking(initialRate = 0.2): UseStockRankingResult {
   const [discountRate, setDiscountRate] = useState(initialRate)
+  // Padrão: taxa por ativo. Risco não é o mesmo em toda a bolsa, e uma taxa única
+  // premia sistematicamente quem é mais arriscado — que é quem sobe num ranking
+  // ordenado por desconto.
+  const [rateMode, setRateMode] = useState<RateMode>('capm')
   const [mode, setMode] = useState<RankingMode>('setor')
   const [requiredYield, setRequiredYield] = useState<number>(BAZIN_REQUIRED_YIELD)
   const [ranking, setRanking] = useState<StockRanking | null>(null)
@@ -33,7 +40,12 @@ export function useStockRanking(initialRate = 0.2): UseStockRankingResult {
   const requestRef = useRef<AbortController | null>(null)
 
   const load = useCallback(
-    async (request: { discountRate: number; mode: RankingMode; requiredYield: number }) => {
+    async (request: {
+      discountRate: number
+      mode: RankingMode
+      requiredYield: number
+      rateMode: RateMode
+    }) => {
       requestRef.current?.abort()
       const controller = new AbortController()
       requestRef.current = controller
@@ -55,16 +67,18 @@ export function useStockRanking(initialRate = 0.2): UseStockRankingResult {
   )
 
   useEffect(() => {
-    void load({ discountRate, mode, requiredYield })
+    void load({ discountRate, mode, requiredYield, rateMode })
     return () => requestRef.current?.abort()
-  }, [load, discountRate, mode, requiredYield])
+  }, [load, discountRate, mode, requiredYield, rateMode])
 
   const refresh = useCallback(() => {
-    void load({ discountRate, mode, requiredYield })
-  }, [load, discountRate, mode, requiredYield])
+    void load({ discountRate, mode, requiredYield, rateMode })
+  }, [load, discountRate, mode, requiredYield, rateMode])
 
   return {
     ranking,
+    rateMode,
+    setRateMode,
     discountRate,
     setDiscountRate,
     mode,

@@ -1,8 +1,14 @@
 import type { CeilingMethodId, MethodFamily } from '../valuation/methods'
+import { usesWacc } from '../valuation/methods'
+import {
+  EQUITY_RISK_PREMIUM,
+  FALLBACK_RISK_FREE_RATE,
+} from '../valuation/cost-of-capital'
 import { BAZIN_REQUIRED_YIELD } from '../valuation/models/bazin'
 import { calculateSafetyMargin } from '../valuation/models/safety-margin'
 import { PERPETUAL_GROWTH } from '../valuation/models/two-phase-dcf'
 import { resolveCeiling, type CeilingParams } from './ceiling'
+import { resolveStockCostOfCapital } from './cost-of-capital'
 import type { StockFundamentals } from './fundamentals'
 import { selectMethod } from './method-selection'
 
@@ -23,9 +29,26 @@ export const STOCK_CRITERIA = {
   maxDiscountRate: 0.4,
   /** Passo de arredondamento de k, para o cache não virar chave infinita. */
   discountRateStep: 0.005,
+  /** Faixa aceita para a taxa livre de risco lida do Banco Central. */
+  minRiskFreeRate: 0.02,
+  maxRiskFreeRate: 0.3,
 } as const
 
 export type StockRejectionReason = 'sem-preco' | 'liquidez-baixa' | 'sem-metodo'
+
+/**
+ * De onde sai a taxa de desconto de cada ativo.
+ *
+ *  · `capm` — a taxa é calculada por ativo: Ke pelo CAPM, com o beta do setor
+ *    relavancado pela dívida da empresa, e WACC quando o método desconta fluxo da
+ *    firma. É o padrão, porque risco não é o mesmo em toda a bolsa: uma taxa única
+ *    aplicada ao mercado inteiro premia sistematicamente o ativo mais arriscado, e
+ *    ativo arriscado é justamente quem sobe num ranking por desconto.
+ *  · `fixo` — a taxa é a que o usuário escolheu, igual para todos. Continua
+ *    disponível porque comparar o mercado sob a mesma exigência de retorno é uma
+ *    pergunta legítima; ela só não pode ser a única disponível.
+ */
+export type RateMode = 'capm' | 'fixo'
 
 /**
  * Régua do ranking: `setor` avalia cada ação pelo método da natureza dela, e um
@@ -34,10 +57,17 @@ export type StockRejectionReason = 'sem-preco' | 'liquidez-baixa' | 'sem-metodo'
 export type RankingMode = 'setor' | CeilingMethodId
 
 export interface RankingOptions {
+  /** Taxa fixa, usada quando `rateMode` é `fixo`. */
   discountRate: number
   mode: RankingMode
   /** Yield exigido do Bazin, como fração. */
   requiredYield?: number
+  /** De onde sai a taxa. Omitido, CAPM/WACC por ativo. */
+  rateMode?: RateMode
+  /** Taxa livre de risco nominal, como fração. Só usada no modo `capm`. */
+  riskFreeRate?: number
+  /** Prêmio adicional exigido pelo usuário sobre o CAPM. */
+  extraPremium?: number
 }
 
 export interface RankedStock {
@@ -53,6 +83,18 @@ export interface RankedStock {
   methodReason: string
   /** `true` quando o comportamento observado mudou a etiqueta do setor. */
   adjustedByBehavior: boolean
+  /** Taxa que descontou este fluxo: Ke para fluxo do acionista, WACC para a firma. */
+  discountRateUsed: number | null
+  /** Ke deste ativo, mesmo quando o método usado não desconta fluxo. */
+  costOfEquity: number
+  /** WACC deste ativo. `null` em financeiro e onde falta estrutura de capital. */
+  wacc: number | null
+  /** Beta aplicado no CAPM, já relavancado. `null` no modo de taxa fixa. */
+  beta: number | null
+  /** Beta desalavancado do setor, antes da alavancagem da empresa. */
+  betaUnlevered: number | null
+  /** D/E usado para relavancar o beta. */
+  debtToEquity: number | null
   /** Preço teto por ação. */
   ceiling: number
   /** Desconto do mercado contra o teto, como fração. Único critério de ordem. */
@@ -68,8 +110,13 @@ export interface RankedStock {
 
 export interface StockRanking {
   ranked: RankedStock[]
-  /** Taxa de desconto usada, já normalizada. */
+  /** Taxa fixa usada, já normalizada. Só significa algo quando `rateMode` é `fixo`. */
   discountRate: number
+  rateMode: RateMode
+  /** Taxa livre de risco que alimentou o CAPM, como fração. */
+  riskFreeRate: number
+  /** Prêmio de equity de um ativo com β = 1, para a tela mostrar a montagem. */
+  equityRiskPremium: number
   mode: RankingMode
   requiredYield: number
   universeSize: number
@@ -92,6 +139,20 @@ export function normalizeDiscountRate(rate: number): number {
   if (!Number.isFinite(rate)) return 0.2
   const clamped = Math.min(maxDiscountRate, Math.max(minDiscountRate, rate))
   return Number((Math.round(clamped / discountRateStep) * discountRateStep).toFixed(4))
+}
+
+/**
+ * Arredonda a taxa livre de risco em décimos de ponto percentual.
+ *
+ * A Selic efetiva do Banco Central varia na terceira casa entre dois dias, e sem
+ * arredondar cada leitura viraria uma chave nova de cache com o mesmo ranking
+ * dentro.
+ */
+export function normalizeRiskFreeRate(rate: number): number {
+  const { minRiskFreeRate, maxRiskFreeRate } = STOCK_CRITERIA
+  if (!Number.isFinite(rate) || rate <= 0) return FALLBACK_RISK_FREE_RATE
+  const clamped = Math.min(maxRiskFreeRate, Math.max(minRiskFreeRate, rate))
+  return Number(clamped.toFixed(3))
 }
 
 /** Mesmo raciocínio para o yield do Bazin: passo de meio ponto, faixa fechada. */
@@ -129,6 +190,8 @@ export function rankStocks(
 ): StockRanking {
   const discountRate = normalizeDiscountRate(options.discountRate)
   const requiredYield = normalizeRequiredYield(options.requiredYield ?? BAZIN_REQUIRED_YIELD)
+  const rateMode: RateMode = options.rateMode ?? 'capm'
+  const riskFreeRate = normalizeRiskFreeRate(options.riskFreeRate ?? FALLBACK_RISK_FREE_RATE)
 
   const rejectedByReason: Record<StockRejectionReason, number> = {
     'sem-preco': 0,
@@ -137,15 +200,28 @@ export function rankStocks(
   }
   const methodCounts: Partial<Record<CeilingMethodId, number>> = {}
 
-  const params: CeilingParams = {
+  /**
+   * Limite de g, dado o retorno exigido.
+   *
+   * A perpetuidade divide por (taxa − 3%): o limite precisa ficar acima disso para
+   * o modelo de Gordon não devolver teto sem sentido. Com taxa por ativo o limite
+   * também é por ativo, e é a menor das duas taxas que manda — a mesma cadeia de
+   * métodos pode cair num fluxo de acionista ou num fluxo de firma.
+   */
+  const growthLimit = (rate: number) =>
+    Math.max(
+      PERPETUAL_GROWTH + STOCK_CRITERIA.growthGapToDiscount,
+      rate - STOCK_CRITERIA.growthGapToDiscount,
+    )
+
+  const baseParams: CeilingParams = {
     discountRate,
     requiredYield,
-    // A perpetuidade divide por (k − 3%): o limite de g precisa ficar acima disso
-    // para o modelo de Gordon não devolver teto sem sentido.
-    maxGrowth: Math.max(
-      PERPETUAL_GROWTH + STOCK_CRITERIA.growthGapToDiscount,
-      discountRate - STOCK_CRITERIA.growthGapToDiscount,
-    ),
+    maxGrowth: growthLimit(discountRate),
+    // No modo de taxa fixa a escolha do usuário vale para os dois fluxos. Não é o
+    // ideal teórico — WACC e Ke não são a mesma taxa —, mas é o que "taxa fixa"
+    // quer dizer, e a tela avisa que o número não veio do CAPM.
+    wacc: rateMode === 'fixo' ? discountRate : null,
   }
 
   const evaluated: Omit<RankedStock, 'position'>[] = []
@@ -159,6 +235,26 @@ export function rankStocks(
 
     const selection = selectMethod(stock)
     const chain = options.mode === 'setor' ? selection.preference : [options.mode]
+
+    /**
+     * A taxa deste ativo. No modo CAPM ela sai do beta do setor relavancado pela
+     * dívida da empresa; o WACC vem por cima, com o custo da dívida ponderado — e
+     * fica nulo onde não se aplica, o que exclui o método de fluxo da firma da
+     * cadeia sem precisar de regra extra.
+     */
+    const rates = rateMode === 'capm' ? resolveStockCostOfCapital(stock, { riskFreeRate }) : null
+    const costOfEquityRate = rates?.costOfEquity ?? discountRate
+    const waccRate = rates != null ? (rates.wacc?.wacc ?? null) : discountRate
+    const params: CeilingParams =
+      rates == null
+        ? baseParams
+        : {
+            ...baseParams,
+            discountRate: costOfEquityRate,
+            wacc: waccRate,
+            maxGrowth: growthLimit(Math.min(costOfEquityRate, waccRate ?? costOfEquityRate)),
+          }
+
     const resolved = resolveCeiling(chain, stock, params)
     if (resolved == null) {
       rejectedByReason['sem-metodo'] += 1
@@ -176,6 +272,12 @@ export function rankStocks(
       family: selection.family,
       methodReason: selection.reason,
       adjustedByBehavior: selection.adjustedByBehavior,
+      discountRateUsed: usesWacc(resolved.method) ? waccRate : costOfEquityRate,
+      costOfEquity: costOfEquityRate,
+      wacc: waccRate,
+      beta: rates?.beta.beta ?? null,
+      betaUnlevered: rates?.beta.unlevered ?? null,
+      debtToEquity: rates?.beta.debtToEquity ?? null,
       ceiling: resolved.ceiling,
       safetyMargin: calculateSafetyMargin(resolved.ceiling, stock.price!),
       growthRate: resolved.growthRate,
@@ -198,6 +300,9 @@ export function rankStocks(
   return {
     ranked,
     discountRate,
+    rateMode,
+    riskFreeRate,
+    equityRiskPremium: EQUITY_RISK_PREMIUM,
     mode: options.mode,
     requiredYield,
     universeSize: universe.length,

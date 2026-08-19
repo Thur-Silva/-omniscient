@@ -118,6 +118,13 @@ estável. Sanepar e BBSE3 não se avaliam igual, e é isso que decide o método.
 | cíclica | Materiais Básicos, Petróleo e Gás, Siderurgia, Mineração, Papel, Químicos, Agro, Alimentos, Construção Civil, Automóveis | **Número de Graham**, `√(22,5 × LPA × VPA)` | Lucro reverte à média e é irregular. Projetar os últimos 12 meses por três anos multiplica um resultado de pico ou de fundo; a raiz com o patrimônio amortece. |
 | crescimento | o resto: consumo, saúde, tecnologia, bens industriais | **FCD em 2 fases** sobre o FCFE | O valor está na trajetória do resultado, com a trava de retenção limitando o que pode sair da empresa. |
 
+O sexto método, **FCFF em 2 fases**, desconta o fluxo da firma ao WACC e não é
+padrão de nenhuma família: entra quando você o escolhe, ou quando o método da
+família não fecha por falta de premissa. É a régua certa quando a dívida é parte da
+história — o fluxo é o caixa antes do serviço da dívida, e o valor do acionista sai
+por diferença, subtraindo a dívida líquida do valor da firma. Não se aplica a banco
+e seguradora, e ali nem aparece na cadeia.
+
 Entre crescimento e pagadora, os dados corrigem a etiqueta do setor: payout ≥ 60%
 com DY ≥ 5% e receita quase parada (CAGR ≤ 8%) lê-se como pagadora; payout < 40%
 com CAGR ≥ 15% lê-se como crescimento. Financeiro e cíclica não são
@@ -133,6 +140,77 @@ exercícios encerrados, como no livro; no ranking, o DY de 12 meses.
 mostra o método em uso, a fórmula, o fluxo descontado, a justificativa do setor e o
 parágrafo "onde erra" antes de você trocar de régua. O ranking mostra a etiqueta do
 método em cada linha e, ao abrir, a mesma justificativa.
+
+### A taxa: CAPM para fluxo do acionista, WACC para fluxo da firma
+
+Por muito tempo a taxa de desconto foi a única premissa que a tela pedia sem
+justificar: um campo com 20% dentro, e o mesmo 20% aplicado ao mercado inteiro.
+Retorno exigido é escolha do investidor, mas *escolha* não é *arbítrio* — existe um
+custo de oportunidade observável, e ele não é o mesmo para uma concessionária de
+saneamento e para uma incorporadora. Uma taxa única premia sistematicamente o ativo
+de risco alto, que é exatamente quem sobe numa lista ordenada por desconto.
+
+Cada fluxo tem a sua taxa, e a escolha não é de tela:
+
+| Fluxo | Métodos | Taxa | Por quê |
+| --- | --- | --- | --- |
+| do acionista | FCD (FCFE), DDM, renda residual | **Ke**, pelo CAPM | É o retorno que o acionista exige do capital dele. |
+| da firma | FCFF em 2 fases | **WACC** | O fluxo é de acionista **e** credor, então a taxa é a média dos dois, ponderada pelo que cada um pôs. |
+| nenhum | Bazin, número de Graham | — | Não descontam fluxo: um inverte uma exigência de renda, o outro é média geométrica de lucro e patrimônio. |
+
+Descontar fluxo do acionista ao WACC credita a ele o benefício fiscal da dívida sem
+cobrar o serviço dessa dívida; descontar fluxo da firma a Ke faz o contrário. Nos
+dois casos o erro tem sinal conhecido: infla o teto da empresa alavancada.
+
+**A montagem do Ke**, em moeda local, evita contar risco-país duas vezes. O caminho
+ingênuo somaria à Selic o "ERP do Brasil" de tabela (~7,7%) — mas o título público
+brasileiro já paga o spread de inadimplência do soberano, e o ERP de país deriva
+desse mesmo spread. Então o spread sai da taxa livre de risco e volta no prêmio de
+equity, amplificado pela volatilidade relativa da bolsa contra o título (Damodaran,
+"Country Risk: Determinants, Measures and Implications"):
+
+```
+Rf_limpo = Selic − spread do soberano (2,4%)
+ERP      = 4,33% de mercado maduro + 2,4% × 1,42 de risco-país = 7,74%
+Ke       = Rf_limpo + β × ERP + prêmio adicional
+```
+
+A **Selic** vem do Banco Central (série 1178 do SGS, anualizada base 252), pelo
+mesmo proxy de cache das outras fontes — juro muda por decisão do Copom, não por
+minuto. Não é juro de longo prazo: o correto para uma perpetuidade seria a NTN-B
+longa com inflação implícita, e a Selic é o juro de um dia anualizado, que em ciclo
+de aperto fica acima do juro longo — o teto sai mais conservador, não mais frouxo. A
+`/teto` mostra a taxa com a data da leitura e deixa trocar.
+
+O **beta** é *bottom-up* (Damodaran), não de regressão: o risco de um negócio é o do
+setor, e o que separa a empresa da média do setor é a alavancagem, devolvida pela
+conta de Hamada (1972), `β_L = β_U × [1 + (1 − t) × D/E]`. Beta de regressão exigiria
+uma série de preços por ticker — 617 requisições —, tem erro-padrão grande em papel
+ilíquido e mede a estrutura de capital do passado. Instituição financeira é exceção:
+alavancagem é o insumo do negócio, então ali a tabela já traz o beta alavancado e
+Hamada não roda. O D/E é limitado em 3, porque a fonte reporta alavancagem de 10 em
+empresa com patrimônio quase zerado, e ali o problema é solvência, não custo de
+capital.
+
+O **Kd** sai de `Selic + spread`, com o spread num degrau de dívida líquida sobre
+EBIT (de 1,2% para quem tem caixa líquido a 9% acima de 6× o EBIT). O canônico é
+rating sintético por cobertura de juros, mas a fonte não publica despesa financeira;
+dívida sobre EBIT mede a mesma coisa pelo outro lado. Os pesos do WACC são de
+mercado: capitalização contra dívida líquida. **Caixa líquido não vira peso
+negativo** — isso puxaria o WACC abaixo do Ke e devolveria teto maior por a empresa
+ter caixa, contando o caixa duas vezes; o peso da dívida é zero, o WACC colapsa em
+Ke, e o caixa aparece somando ao valor do acionista quando a dívida líquida negativa
+é subtraída da firma.
+
+Medido em 19/08/2026, com Selic de 13,9%: SAPR11 fica com β 0,46 e Ke de 15,0%;
+BBSE3 com β 0,85 e 18,1%; BBAS3 e ITUB4 com β 1,00 e 19,2%; PETR4 com β 1,14 e Ke de
+20,3%, e WACC de 16,7% pela dívida que carrega; MTRE3 com β 1,40 e 22,3%. Era tudo
+18% antes.
+
+Na `/acoes` a taxa por ativo é o padrão, e **taxa fixa** continua disponível como
+escolha explícita — comparar o mercado sob a mesma exigência de retorno é uma
+pergunta legítima; ela só não pode ser a única. No modo fixo a taxa escolhida vale
+para os dois fluxos, o que não é o ideal teórico e a tela diz.
 
 ### Limites que a fonte exige
 
@@ -170,35 +248,48 @@ lucro duas vezes e deslocaria a ordem para longe do desconto, que é justamente 
 que se quer medir. O P/L continua na lista e no detalhe, como referência de tela.
 
 **A régua é sua:** *por setor* avalia cada ação pelo método da natureza dela, e
-qualquer um dos cinco métodos pode ser fixado para toda a lista. Por setor, a lista
+qualquer um dos seis métodos pode ser fixado para toda a lista. Por setor, a lista
 mistura métodos de propósito — é o que corrige avaliar SAPR11 e WEGE3 pela mesma
 fórmula —, mas margens de modelos diferentes não são estritamente comparáveis: o
-número de Graham não desconta a k, então devolve teto mais generoso. Para comparar
+número de Graham não desconta fluxo, então devolve teto mais generoso. Para comparar
 fórmula a fórmula, fixe um método.
 
-A taxa de desconto é escolhida por você (10% a 25%), e o resultado muda bastante: o
-teto do PETR4 vai de R$ 178,67 com k de 10% a R$ 71,08 com k de 25%.
+**A taxa também é sua, mas não é chute:** o padrão é *CAPM por ativo* — Ke montado
+com a Selic do dia e o beta do setor relavancado pela dívida da empresa, WACC para
+quem desconta fluxo da firma (ver "A taxa", acima). *Taxa fixa* mantém o antigo
+retorno exigido único (10% a 25%), e a diferença é grande: com k de 18% para todo o
+mercado, SAPR11 exigia 18% de retorno; pelo CAPM, exige 15,0%, e o teto sobe na
+mesma proporção.
 
-Exemplo real (17/08/2026, k = 18%, régua por setor, 617 ações → 144 avaliadas):
+Exemplo real (19/08/2026, régua por setor, taxa pelo CAPM com Selic de 13,9%, 617
+ações → 163 avaliadas):
 
 ```
-#   ticker  método     família       margem     teto    preco
-1   EVEN3   Graham     cíclica        70,2%    14,65     4,37
-2   RIAA3   FCD        crescimento    65,0%    19,37     6,77
-3   JHSF3   Graham     cíclica        62,6%    27,76    10,37
-4   EZTC3   Graham     cíclica        62,6%    28,54    10,68
-5   CYRE4   Graham     cíclica        57,8%    49,94    21,06
+#   ticker  método   família       margem      Ke      β     teto    preco
+1   ALLD3   FCD      crescimento    75,3%   18,9%   0,96    21,18     5,24
+2   MTRE3   Graham   cíclica        75,0%   22,3%   1,40    11,63     2,91
+3   EVEN3   Graham   cíclica        70,4%   21,6%   1,30    14,65     4,33
+4   MELK3   Graham   cíclica        66,7%   22,1%   1,38     8,43     2,81
+5   EUCA4   Graham   cíclica        64,0%   18,8%   0,94    56,37    20,27
 ```
 
-Composição da lista: 46 por FCD, 25 por DDM, 25 por renda residual, 48 pelo número
-de Graham. Das 617 do universo, 38 caem sem cotação, 388 por liquidez e 47 sem
-premissa para método nenhum.
+Composição da lista: 49 por FCD, 28 por DDM, 28 por renda residual, 53 pelo número
+de Graham, 5 por FCFF. Das 617 do universo, 38 caem sem cotação, 366 por liquidez e
+50 sem premissa para método nenhum.
 
-Os casos que motivaram o recorte por setor: **SAPR11** sai pelo DDM (teto R$ 3,74
-contra preço de R$ 32,54 — o ROE na fonte é de 3,76% e você exige 18%), **BBSE3**
-pela renda residual (teto R$ 29,69, P/VP justificado de 5,29 contra 6,63 de
-mercado), **BBAS3** e **ITUB4** também por renda residual, **VALE3** e **PETR4**
-pelo número de Graham, **WEGE3** pelo FCD.
+Os casos que motivaram o recorte por setor: **SAPR11** sai pelo DDM (teto R$ 4,63
+contra preço de R$ 31,96 — o ROE na fonte é de 3,76% e o CAPM exige 15,0%), **BBSE3**
+pela renda residual (teto R$ 29,65, P/VP justificado contra 6,62 de mercado),
+**BBAS3** e **ITUB4** também por renda residual, **VALE3** e **PETR4** pelo número de
+Graham, **WEGE3** pelo FCD.
+
+Com a régua do FCFF forçada para todo o mercado, 85 ações fecham e 128 saem sem
+premissa: banco e seguradora por construção — não há estrutura de capital a
+ponderar —, e o resto por EBIT, ROIC ou dívida líquida ausentes na fonte. VALE3 sai
+por um motivo que vale registrar: a fonte reporta ROIC de 1,6%, abaixo do
+crescimento perpétuo de 3%, e crescer para sempre acima do próprio retorno exigiria
+reinvestir mais do que a firma gera. O modelo recusa em vez de devolver valor
+terminal zero.
 
 As ações com crescimento truncado ficam marcadas com *g limitado* na lista, com o
 valor original riscado no detalhe.
@@ -213,17 +304,26 @@ minutos:
 | --- | --- | --- |
 | `fundamentos:/category/…CategoryType=1` | resposta crua do StatusInvest (443 KB) | não |
 | `fundamentos:/acao/companytickerprovents?…ticker=X` | histórico anual de proventos de um ativo | não |
-| `ranking:acoes?k=18.0&m=setor&dy=6.0&v=3` | ranking já calculado (~57 KB) | sim |
+| `bcb:/dados/serie/bcdata.sgs.1178/dados/ultimos/1?formato=json` | Selic anualizada do Banco Central | não |
+| `ranking:acoes?r=capm&rf=13.9&m=setor&dy=6.0&v=4` | ranking já calculado (~57 KB) | sim |
+| `ranking:acoes?r=fixo&k=18.0&m=setor&dy=6.0&v=4` | o mesmo, com taxa fixa | sim |
 
-Tudo que muda o resultado entra na chave do ranking: `k`, `m` (a régua) e `dy` (o
-yield exigido do Bazin). O `v` é a versão da metodologia — hoje 3: a 1 somava
-colocação de margem com colocação de P/L, a 2 ordenava só pela margem com uma
-fórmula única para todo o mercado. Sem trocar a chave, um snapshot de até 10
-minutos antes seguiria sendo servido com a régua antiga.
+Tudo que muda o resultado entra na chave do ranking: `m` (a régua), `dy` (o yield
+exigido do Bazin) e a taxa. No modo CAPM o que entra é a taxa livre de risco, porque
+não existe um `k` só — quando o Copom mexe na Selic, o custo de capital de toda a
+bolsa muda e o ranking guardado precisa ser outro registro. No modo fixo é o
+contrário: `k` manda e a Selic é irrelevante, então nem é buscada.
 
-Como a chave dos fundamentos não tem `k`, **uma só ida à fonte alimenta todos os
-k** e também a página `/teto`. Medido: `chamadas=1` no `api_fetch_log` depois de
-pedir k=20 e k=15.
+O `v` é a versão da metodologia — hoje 4: a 1 somava colocação de margem com
+colocação de P/L, a 2 ordenava só pela margem com uma fórmula única para todo o
+mercado, a 3 escolhia o método pelo setor mas descontava tudo à mesma taxa. Sem
+trocar a chave, um snapshot de até 10 minutos antes seguiria sendo servido com a
+régua antiga.
+
+Como a chave dos fundamentos não tem taxa, **uma só ida à fonte alimenta todas as
+réguas** e também a página `/teto`. Medido: `chamadas=1` no `api_fetch_log` depois de
+pedir k=20 e k=15. A Selic é chave própria, sem `k` nem régua: a mesma leitura serve
+ao ranking e à calculadora.
 
 Dentro da janela nem a fonte nem o cálculo são refeitos: a primeira chamada leva
 ~770 ms, as seguintes ~20 ms com `X-Cache: hit`.
@@ -256,15 +356,20 @@ domínio recusam prejuízo, payout fora de 0–100%, ROE negativo, ações ≤ 0
 
 ### Premissas preenchidas pela API
 
-O usuário edita cinco campos, todos já preenchidos. Só a taxa de desconto não tem
-origem em dado — retorno exigido é escolha do investidor.
+O usuário edita as premissas do método em uso, todas já preenchidas — e desde a
+montagem do custo de capital, **a taxa também tem origem em dado**: Ke vem do CAPM
+com a Selic do Banco Central e o beta do setor relavancado pela dívida da empresa, e
+WACC pondera esse Ke com o custo da dívida. O campo continua editável, porque exigir
+mais que o custo de oportunidade é decisão de quem investe; editar à mão desliga o
+CAPM, e a tela marca a taxa como exigência sua. O painel "Custo de capital" mostra a
+montagem inteira, linha por linha, com a data da leitura da Selic.
 
 | Campo | Origem | BBAS3 | Cobertura |
 | --- | --- | --- | --- |
 | Lucro líquido inicial | `LPA × nº de ações` | R$ 15,359 bi | 399/617 |
 | Payout | `(DY × preço) / LPA` | 20,57% | 272/617 |
 | ROE | direto | 8,27% | 614/617 |
-| Taxa de desconto (k) | premissa, padrão 20% | 20% | — |
+| Custo de capital próprio (Ke) | CAPM: `(Selic − spread) + β × ERP` | 19,2% em 19/08/2026 | 617/617 |
 | Nº de ações | `capitalização / preço` | 5.730.834.040 | 566/617 |
 
 O número de ações derivado bate **exatamente** com os 5.730.834.040 que o
@@ -413,6 +518,13 @@ StatusInvest**, que devolve os ~600 FIIs numa única requisição.
 O proxy `/api/fundamentos` (em `vite.config.ts`) injeta `User-Agent` e `Referer`
 no servidor — sem ele a chamada é barrada por CORS. **Em produção precisa do proxy
 equivalente**, igual ao caso da brapi.
+
+A taxa livre de risco é a exceção feliz: vem do **SGS do Banco Central**
+(`api.bcb.gov.br`, série 1178), que é API pública documentada, sem chave e sem
+cabeçalho de navegador. Passa pelo proxy `/api/bcb` só para ganhar a janela de cache
+de 10 minutos — a Selic muda por decisão do Copom, não por minuto. Fonte fora do ar
+não derruba nada: cai no número de reserva do código, e a tela avisa que a leitura é
+de reserva, porque juro defasado muda o teto de todo o mercado de uma vez.
 
 ## Triagem: barato ou caro
 

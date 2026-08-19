@@ -185,6 +185,93 @@ export default function MethodBreakdown({ breakdown }: MethodBreakdownProps) {
     )
   }
 
+  if (breakdown.method === 'fcff-wacc') {
+    const { fcff } = breakdown
+    return (
+      <div className="ledger">
+        {fcff.years.map((year) => (
+          <div className="calc-row" key={year.year}>
+            <span className="calc-label">
+              Ano {year.year}
+              <small>
+                EBIT {money(year.ebit)} · depois do imposto {money(year.afterTaxEbit)} ·
+                reinvestimento {percent(year.reinvestmentRate, 1)} → FCFF {money(year.fcff)}
+              </small>
+            </span>
+            <span className="price calc-value">{money(year.presentValue)}</span>
+          </div>
+        ))}
+
+        <div className="calc-row is-subtotal">
+          <span className="calc-label">
+            Fase explícita
+            <small>
+              {percent(fcff.explicitShare, 1)} do valor da firma · g {percent(fcff.growthRate)} ao
+              ano, com reinvestimento de g ÷ ROIC
+            </small>
+          </span>
+          <span className="price calc-value">{money(fcff.explicitPresentValue)}</span>
+        </div>
+
+        <div className="calc-row is-subtotal">
+          <span className="calc-label">
+            Perpetuidade
+            <small>
+              FCFF de {money(fcff.terminalFcff)} ÷ (WACC {percent(fcff.discountRate, 1)} − g∞{' '}
+              {percent(fcff.perpetualGrowthRate, 1)}) = {money(fcff.terminalValue)}, trazido{' '}
+              {EXPLICIT_YEARS} anos
+              {fcff.perpetualGrowthCapped
+                ? ` · g∞ pedido de ${percent(fcff.requestedPerpetualGrowth)} limitado a ${percent(PERPETUAL_GROWTH)}`
+                : ''}
+            </small>
+          </span>
+          <span className="price calc-value">{money(fcff.terminalPresentValue)}</span>
+        </div>
+
+        <div className="calc-row is-subtotal">
+          <span className="calc-label">
+            Valor da firma
+            <span className="method-formula">
+              o que o negócio vale para todos os investidores, credor incluído
+            </span>
+          </span>
+          <span className="price calc-value">{money(fcff.enterpriseValue)}</span>
+        </div>
+
+        <div className="calc-row">
+          <span className="calc-label">
+            {fcff.netDebt < 0 ? 'Caixa líquido' : 'Dívida líquida'}
+            <small>
+              {fcff.netDebt < 0
+                ? 'soma ao valor do acionista: é caixa que sobra depois de quitar a dívida'
+                : `${percent(fcff.netDebtShare, 1)} do valor da firma vai para o credor antes do acionista`}
+            </small>
+          </span>
+          <span className="price calc-value">{money(-fcff.netDebt)}</span>
+        </div>
+
+        <div className="calc-row is-subtotal">
+          <span className="calc-label">
+            Valor do acionista
+            <small>firma menos dívida líquida</small>
+          </span>
+          <span className="price calc-value">{money(fcff.equityValue)}</span>
+        </div>
+
+        <div className="calc-row is-total">
+          <span className="calc-label">
+            Preço teto por ação
+            <small>
+              {money(fcff.equityValue)} ÷{' '}
+              {new Intl.NumberFormat('pt-BR').format(Math.round(fcff.sharesOutstanding))} ações
+            </small>
+          </span>
+          <span className="calc-value is-ceiling">{money(fcff.fairValue)}</span>
+        </div>
+      </div>
+    )
+  }
+
   const { graham } = breakdown
   return (
     <div className="ledger">

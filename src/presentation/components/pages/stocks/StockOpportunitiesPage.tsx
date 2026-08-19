@@ -21,9 +21,14 @@ const REASON_LABELS: Record<StockRejectionReason, string> = {
 
 const integer = new Intl.NumberFormat('pt-BR')
 
-/** Métodos que dependem do retorno exigido; para os outros, k não muda nada. */
+function percent(value: number | null | undefined, digits = 1): string {
+  return value == null ? '—' : `${(value * 100).toFixed(digits)}%`
+}
+
+/** Métodos que dependem do retorno exigido; para os outros, a taxa não muda nada. */
 const USES_DISCOUNT_RATE: readonly CeilingMethodId[] = [
   'fcd-2-fases',
+  'fcff-wacc',
   'ddm-gordon',
   'renda-residual',
 ]
@@ -31,6 +36,8 @@ const USES_DISCOUNT_RATE: readonly CeilingMethodId[] = [
 export default function StockOpportunitiesPage() {
   const {
     ranking,
+    rateMode,
+    setRateMode,
     discountRate,
     setDiscountRate,
     mode,
@@ -115,22 +122,54 @@ export default function StockOpportunitiesPage() {
         </p>
       </div>
 
+      {/* De onde sai a taxa. Uma taxa única para o mercado inteiro premia
+          sistematicamente o ativo mais arriscado — que é exatamente quem sobe numa
+          lista ordenada por desconto —, então o padrão é calcular a taxa por
+          ativo. Exigir o mesmo retorno de todos continua possível, e agora é
+          escolha explícita. */}
       {showDiscountRate && (
         <div className="filter-group">
-          <span className="filter-label">Retorno exigido (k)</span>
-          <div className="chips" role="group" aria-label="Taxa de desconto">
-            {DISCOUNT_RATE_OPTIONS.map((rate) => (
-              <button
-                key={rate}
-                type="button"
-                aria-pressed={discountRate === rate}
-                className={`chip${discountRate === rate ? ' is-active' : ''}`}
-                onClick={() => setDiscountRate(rate)}
-              >
-                {(rate * 100).toFixed(0)}%
-              </button>
-            ))}
+          <span className="filter-label">Taxa de desconto</span>
+          <div className="chips" role="group" aria-label="Origem da taxa de desconto">
+            <button
+              type="button"
+              aria-pressed={rateMode === 'capm'}
+              className={`chip${rateMode === 'capm' ? ' is-active' : ''}`}
+              onClick={() => setRateMode('capm')}
+            >
+              CAPM por ativo
+            </button>
+            <button
+              type="button"
+              aria-pressed={rateMode === 'fixo'}
+              className={`chip${rateMode === 'fixo' ? ' is-active' : ''}`}
+              onClick={() => setRateMode('fixo')}
+            >
+              Taxa fixa
+            </button>
           </div>
+          {rateMode === 'capm' ? (
+            <p className="muted picker-hint">
+              Ke = (Selic {percent(ranking?.riskFreeRate)} − spread do soberano) + β × prêmio de
+              equity de {percent(ranking?.equityRiskPremium)}, com o β do setor relavancado pela
+              dívida de cada empresa. Fluxo da firma desconta ao WACC, que pondera esse Ke com o
+              custo da dívida depois do imposto. A taxa de cada ação aparece na linha.
+            </p>
+          ) : (
+            <div className="chips" role="group" aria-label="Retorno exigido">
+              {DISCOUNT_RATE_OPTIONS.map((rate) => (
+                <button
+                  key={rate}
+                  type="button"
+                  aria-pressed={discountRate === rate}
+                  className={`chip${discountRate === rate ? ' is-active' : ''}`}
+                  onClick={() => setDiscountRate(rate)}
+                >
+                  {(rate * 100).toFixed(0)}%
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -208,7 +247,7 @@ export default function StockOpportunitiesPage() {
 
           <motion.div
             className="ledger"
-            key={`${discountRate}-${mode}-${requiredYield}`}
+            key={`${rateMode}-${discountRate}-${mode}-${requiredYield}`}
             initial={reduce ? undefined : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
@@ -235,8 +274,10 @@ export default function StockOpportunitiesPage() {
                 <p className="muted picker-hint">
                   {ranking.cappedCount}{' '}
                   {ranking.cappedCount === 1 ? 'ação teve' : 'ações tiveram'} o crescimento truncado
-                  em {((discountRate - STOCK_CRITERIA.growthGapToDiscount) * 100).toFixed(0)}%,
-                  porque o ROE da fonte levaria o teto a valores sem sentido. Estão marcadas na
+                  {rateMode === 'fixo'
+                    ? ` em ${((discountRate - STOCK_CRITERIA.growthGapToDiscount) * 100).toFixed(0)}%`
+                    : ' um ponto abaixo da taxa exigida daquele ativo'}
+                  , porque o ROE da fonte levaria o teto a valores sem sentido. Estão marcadas na
                   lista.
                 </p>
               )}

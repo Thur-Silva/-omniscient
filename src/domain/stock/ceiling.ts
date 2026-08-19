@@ -6,6 +6,8 @@ import { GrahamNumberModel } from '../valuation/models/graham-number'
 import { ResidualIncomeModel } from '../valuation/models/residual-income'
 import { sustainableGrowth, TwoPhaseDcfModel } from '../valuation/models/two-phase-dcf'
 import { TwoPhaseDdmModel } from '../valuation/models/two-phase-ddm'
+import { TwoPhaseFcffModel } from '../valuation/models/two-phase-fcff'
+import { CORPORATE_TAX_RATE } from '../valuation/cost-of-capital'
 import type { CeilingBreakdown } from '../valuation/breakdown'
 import type { StockFundamentals } from './fundamentals'
 
@@ -18,8 +20,28 @@ import type { StockFundamentals } from './fundamentals'
  */
 
 export interface CeilingParams {
-  /** Retorno exigido, como fração. Usado por FCD, DDM e renda residual. */
+  /**
+   * Custo de capital próprio (Ke), como fração. É a taxa dos fluxos do acionista:
+   * FCD sobre FCFE, DDM e renda residual.
+   */
   discountRate: number
+  /**
+   * Custo médio ponderado de capital (WACC), como fração. É a taxa do fluxo da
+   * firma, e só ele. `null` ou ausente torna o método de FCFF inaplicável, o que é
+   * o que acontece em banco e seguradora — onde não há estrutura de capital a
+   * ponderar — e onde a fonte não trouxe capitalização e dívida.
+   */
+  wacc?: number | null
+  /** Alíquota sobre o resultado operacional. Padrão: 34% (IRPJ + CSLL). */
+  taxRate?: number | null
+  /**
+   * Crescimento da fase explícita do fluxo da firma. Omitido, usa o CAGR de
+   * receita de 5 anos da fonte — no FCFF o crescimento não sai de payout e ROE,
+   * que são medidas de acionista.
+   */
+  revenueGrowth?: number | null
+  /** Dívida líquida em reais, quando informada na tela em vez de vir da fonte. */
+  netDebt?: number | null
   /** Yield exigido do Bazin, como fração. */
   requiredYield: number
   /**
@@ -59,6 +81,7 @@ export interface MethodCeiling {
 }
 
 const dcfModel = new TwoPhaseDcfModel()
+const fcffModel = new TwoPhaseFcffModel()
 const ddmModel = new TwoPhaseDdmModel()
 const bazinModel = new BazinModel()
 const residualModel = new ResidualIncomeModel()
@@ -89,6 +112,18 @@ function inputValue(
       return params.discountRate
     case 'requiredYield':
       return params.requiredYield
+    case 'ebit':
+      return stock.ebit
+    case 'returnOnInvestedCapital':
+      return stock.returnOnInvestedCapital
+    case 'revenueGrowth':
+      return params.revenueGrowth ?? stock.revenueCagr5
+    case 'netDebt':
+      return params.netDebt ?? stock.netDebt
+    case 'taxRate':
+      return params.taxRate ?? CORPORATE_TAX_RATE
+    case 'wacc':
+      return params.wacc ?? null
   }
 }
 
@@ -195,6 +230,38 @@ export function computeCeiling(
         perpetualGrowth: params.perpetualGrowth,
       })
       return { method, ceiling: dcf.fairValue, breakdown: { method, dcf }, ...base }
+    }
+    case 'fcff-wacc': {
+      /**
+       * O crescimento aqui é de receita, não de lucro por retenção: o fluxo da
+       * firma cresce reinvestindo no capital investido, e a trava correspondente é
+       * `g/ROIC`, aplicada dentro do modelo. O limite de `maxGrowth` continua
+       * valendo pela mesma razão de sempre — dado ruim na fonte não deve subir ao
+       * topo do ranking.
+       */
+      const requested = params.revenueGrowth ?? stock.revenueCagr5!
+      const limit = params.maxGrowth
+      const cappedGrowth = limit != null && requested > limit
+      const growth = cappedGrowth ? limit! : requested
+      const fcff = fcffModel.project({
+        ebit: stock.ebit!,
+        taxRate: params.taxRate ?? CORPORATE_TAX_RATE,
+        returnOnInvestedCapital: stock.returnOnInvestedCapital!,
+        netDebt: params.netDebt ?? stock.netDebt!,
+        sharesOutstanding: stock.sharesOutstanding!,
+        discountRate: params.wacc!,
+        growthRate: growth,
+        growthRates: params.growthRates,
+        perpetualGrowth: params.perpetualGrowth,
+      })
+      return {
+        method,
+        ceiling: fcff.fairValue,
+        breakdown: { method, fcff },
+        growthRate: growth,
+        uncappedGrowthRate: cappedGrowth ? requested : null,
+        growthCapped: cappedGrowth,
+      }
     }
     case 'ddm-gordon': {
       const ddm = ddmModel.project({

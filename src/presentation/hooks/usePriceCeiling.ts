@@ -4,6 +4,8 @@ import type {
   CeilingResult,
   PrefilledCeiling,
 } from '../../application/stock/price-ceiling'
+import { deriveCostOfCapital } from '../../application/stock/price-ceiling'
+import type { StockCostOfCapital } from '../../domain/stock/cost-of-capital'
 import { ceilingValuationRepository } from '../../composition/container'
 import { estimatePriceCeiling } from '../../composition/container'
 import type { StockFundamentals } from '../../domain/stock/fundamentals'
@@ -41,6 +43,26 @@ export interface CeilingForm {
   earningsPerShare: string
   /** Valor patrimonial por ação, em reais. */
   bookValuePerShare: string
+  /** EBIT em bilhões de reais. Base do fluxo da firma. */
+  ebit: string
+  /** Alíquota sobre o resultado operacional, em pontos percentuais. */
+  taxRate: string
+  /** ROIC em pontos percentuais. */
+  returnOnInvestedCapital: string
+  /** Crescimento da receita em pontos percentuais: a fase explícita do FCFF. */
+  revenueGrowth: string
+  /** Dívida líquida em bilhões de reais. Negativo é caixa líquido. */
+  netDebt: string
+  /** WACC em pontos percentuais. */
+  wacc: string
+  /** Taxa livre de risco em pontos percentuais. */
+  riskFreeRate: string
+  /** Beta do ativo. */
+  beta: string
+  /** Prêmio adicional sobre o CAPM, em pontos percentuais. */
+  extraPremium: string
+  /** Spread de crédito da empresa, em pontos percentuais. */
+  debtSpread: string
 }
 
 const EMPTY_FORM: CeilingForm = {
@@ -57,6 +79,16 @@ const EMPTY_FORM: CeilingForm = {
   requiredYield: '',
   earningsPerShare: '',
   bookValuePerShare: '',
+  ebit: '',
+  taxRate: '',
+  returnOnInvestedCapital: '',
+  revenueGrowth: '',
+  netDebt: '',
+  wacc: '',
+  riskFreeRate: '',
+  beta: '',
+  extraPremium: '',
+  debtSpread: '',
 }
 
 /** Campos opcionais de crescimento: vazios deixam o modelo derivar. */
@@ -128,6 +160,16 @@ function toForm(assumptions: CeilingAssumptions): CeilingForm {
     requiredYield: pct(assumptions.requiredYield),
     earningsPerShare: cash(assumptions.earningsPerShare),
     bookValuePerShare: cash(assumptions.bookValuePerShare),
+    ebit: assumptions.ebit == null ? '' : String(Number((assumptions.ebit / 1e9).toFixed(3))),
+    taxRate: pct(assumptions.taxRate),
+    returnOnInvestedCapital: pct(assumptions.returnOnInvestedCapital),
+    revenueGrowth: pct(assumptions.revenueGrowth),
+    netDebt: assumptions.netDebt == null ? '' : String(Number((assumptions.netDebt / 1e9).toFixed(3))),
+    wacc: pct(assumptions.wacc),
+    riskFreeRate: pct(assumptions.riskFreeRate),
+    beta: assumptions.beta == null ? '' : String(Number(assumptions.beta.toFixed(2))),
+    extraPremium: pct(assumptions.extraPremium),
+    debtSpread: pct(assumptions.debtSpread),
   }
 }
 
@@ -149,6 +191,22 @@ function toAssumptions(form: CeilingForm): CeilingAssumptions {
     requiredYield: pct(form.requiredYield),
     earningsPerShare: parseDecimal(form.earningsPerShare),
     bookValuePerShare: parseDecimal(form.bookValuePerShare),
+    ebit: (() => {
+      const value = parseDecimal(form.ebit)
+      return value == null ? null : value * 1e9
+    })(),
+    taxRate: pct(form.taxRate),
+    returnOnInvestedCapital: pct(form.returnOnInvestedCapital),
+    revenueGrowth: pct(form.revenueGrowth),
+    netDebt: (() => {
+      const value = parseDecimal(form.netDebt)
+      return value == null ? null : value * 1e9
+    })(),
+    wacc: pct(form.wacc),
+    riskFreeRate: pct(form.riskFreeRate),
+    beta: parseDecimal(form.beta),
+    extraPremium: pct(form.extraPremium),
+    debtSpread: pct(form.debtSpread),
   }
 }
 
@@ -171,8 +229,21 @@ function toSavedAssumptions(
   if (method === 'fcd-2-fases' || method === 'ddm-gordon') {
     saved.perpetualGrowth = assumptions.perpetualGrowth
   }
-  if (method === 'fcd-2-fases') {
+  if (method === 'fcd-2-fases' || method === 'fcff-wacc') {
     saved.growthRates = assumptions.growthRates
+  }
+  /**
+   * A montagem da taxa vai junto sempre que a taxa é descontada: sem isso o
+   * registro guardaria "k = 19,3%" sem dizer de onde saiu, e o cálculo não seria
+   * reproduzível seis meses depois, com outra Selic e outro beta.
+   */
+  if (CEILING_METHODS[method].inputs.includes('discountRate') || method === 'fcff-wacc') {
+    if (assumptions.riskFreeRate != null) saved.riskFreeRate = assumptions.riskFreeRate
+    if (assumptions.beta != null) saved.beta = assumptions.beta
+    if (assumptions.extraPremium != null) saved.extraPremium = assumptions.extraPremium
+  }
+  if (method === 'fcff-wacc' && assumptions.debtSpread != null) {
+    saved.debtSpread = assumptions.debtSpread
   }
   return saved
 }
@@ -213,7 +284,14 @@ function fromSaved(record: CeilingValuation): PrefilledCeiling {
       averageDailyLiquidity: null,
       dividendYield: null,
       dividendPerShare: a.dividendPerShare ?? null,
-      revenueCagr5: null,
+      revenueCagr5: a.revenueGrowth ?? null,
+      marketCap: null,
+      ebit: a.ebit ?? null,
+      enterpriseValue: null,
+      netDebt: a.netDebt ?? null,
+      netDebtToEquity: null,
+      netDebtToEbit: null,
+      returnOnInvestedCapital: a.returnOnInvestedCapital ?? null,
     },
     assumptions: {
       netIncome: a.netIncome ?? null,
@@ -230,6 +308,16 @@ function fromSaved(record: CeilingValuation): PrefilledCeiling {
       requiredYield: a.requiredYield ?? null,
       earningsPerShare: a.earningsPerShare ?? null,
       bookValuePerShare: a.bookValuePerShare ?? null,
+      ebit: a.ebit ?? null,
+      taxRate: a.taxRate ?? null,
+      returnOnInvestedCapital: a.returnOnInvestedCapital ?? null,
+      revenueGrowth: a.revenueGrowth ?? null,
+      netDebt: a.netDebt ?? null,
+      wacc: a.wacc ?? null,
+      riskFreeRate: a.riskFreeRate ?? null,
+      beta: a.beta ?? null,
+      extraPremium: a.extraPremium ?? null,
+      debtSpread: a.debtSpread ?? null,
     },
     // Cálculo salvo não tem régua a recomendar: o método é o que foi usado.
     selection: {
@@ -240,12 +328,27 @@ function fromSaved(record: CeilingValuation): PrefilledCeiling {
       adjustedByBehavior: false,
     },
     dividendAverage: null,
+    /**
+     * Um cálculo salvo não relê a Selic: as taxas dele são as daquele momento, e
+     * substituí-las pelas de hoje mudaria o número que o usuário salvou.
+     */
+    riskFree: {
+      rate: a.riskFreeRate ?? Number.NaN,
+      asOf: record.createdAt,
+      label: 'taxa do momento do cálculo',
+      fallback: false,
+    },
+    costOfCapital: null,
     // O save só existe com cálculo pronto, então nada falta.
     missing: [],
   }
 }
 
 export interface UsePriceCeilingResult {
+  /** Montagem do custo de capital com as premissas da tela. */
+  costOfCapital: StockCostOfCapital | null
+  /** `false` quando o usuário digitou a taxa por cima do CAPM. */
+  rateFromCapm: boolean
   term: string
   setTerm: (value: string) => void
   results: StockFundamentals[]
@@ -311,6 +414,16 @@ export function usePriceCeiling(): UsePriceCeilingResult {
   const manualGrowth = useRef<Set<keyof CeilingForm>>(new Set())
   /** Dividendo digitado à mão: para de acompanhar a base do método. */
   const manualDividend = useRef(false)
+  /**
+   * Taxa digitada à mão: para de acompanhar o CAPM.
+   *
+   * É o equivalente de exigir retorno diferente do custo de oportunidade — coisa
+   * legítima, e que a tela precisa mostrar como escolha do usuário, não como
+   * resultado do modelo.
+   */
+  const manualRate = useRef(false)
+  /** Beta digitado à mão: substitui o do setor na montagem do CAPM. */
+  const manualBeta = useRef(false)
 
   useEffect(() => {
     const needle = term.trim()
@@ -372,6 +485,8 @@ export function usePriceCeiling(): UsePriceCeilingResult {
       setSelected(prefilled)
       manualGrowth.current.clear()
       manualDividend.current = false
+      manualRate.current = false
+      manualBeta.current = false
       setForm(toForm(prefilled.assumptions))
       // Abre no método da natureza do ativo. Trocar depois é escolha explícita.
       setMethodState(prefilled.selection.recommended)
@@ -407,8 +522,11 @@ export function usePriceCeiling(): UsePriceCeilingResult {
       const prefilled = fromSaved(saved)
       setSelected(prefilled)
       manualGrowth.current.clear()
-      // O save já traz o dividendo que foi usado: não é para a base do método sobrescrevê-lo.
+      // O save já traz o dividendo e as taxas que foram usados: nada disso deve ser
+      // sobrescrito pela base do método nem por uma remontagem do CAPM de hoje.
       manualDividend.current = true
+      manualRate.current = true
+      manualBeta.current = true
       // g sobrescritos à mão no save precisam continuar sobrescritos: sem isso,
       // o efeito de sincronização trocaria o valor salvo pelo ROE × (1 − payout).
       const { returnOnEquity, payout, growthRates } = prefilled.assumptions
@@ -445,6 +563,10 @@ export function usePriceCeiling(): UsePriceCeilingResult {
       manualGrowth.current.add(field)
     }
     if (field === 'dividendPerShare') manualDividend.current = true
+    // Editar Ke ou WACC direto desliga o CAPM: a partir daí a taxa é exigência do
+    // usuário, e a tela diz isso.
+    if (field === 'discountRate' || field === 'wacc') manualRate.current = true
+    if (field === 'beta') manualBeta.current = true
     // Qualquer edição invalida a confirmação de save: o que está no banco já
     // não corresponde ao que a tela mostra agora.
     setSavedAt(null)
@@ -500,9 +622,65 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     )
   }, [method, selected])
 
+  /**
+   * Custo de capital com as premissas que estão na tela agora.
+   *
+   * Recalculado a cada tecla, como o teto: mexer no beta ou no prêmio adicional
+   * muda Ke e WACC, e as duas taxas precisam acompanhar sem ida nova à fonte. Um
+   * cálculo salvo reaberto não remonta nada — as taxas dele são as que foram
+   * gravadas.
+   */
+  const costOfCapital: StockCostOfCapital | null = useMemo(() => {
+    if (selected == null || isSavedCalc) return null
+    const riskFreeRate = parseDecimal(form.riskFreeRate)
+    if (riskFreeRate == null) return null
+    const beta = manualBeta.current ? parseDecimal(form.beta) : null
+    const extra = parseDecimal(form.extraPremium)
+    const spread = parseDecimal(form.debtSpread)
+    try {
+      return deriveCostOfCapital(selected.fundamentals, {
+        riskFreeRate: riskFreeRate / 100,
+        betaOverride: beta,
+        extraPremium: extra == null ? 0 : extra / 100,
+        debtSpreadOverride: spread == null ? null : spread / 100,
+      })
+    } catch {
+      // Premissa de risco inválida (beta zero, Rf negativo) já vira mensagem no
+      // cálculo do teto; aqui só significa que não há montagem a mostrar.
+      return null
+    }
+  }, [selected, isSavedCalc, form.riskFreeRate, form.beta, form.extraPremium, form.debtSpread])
+
+  /**
+   * As taxas seguem o CAPM até o usuário digitar a sua.
+   *
+   * Ke e WACC não são campos independentes: são resultado da montagem de risco. O
+   * efeito mantém os dois em sincronia com o beta e o prêmio, e para de escrever no
+   * instante em que alguém edita a taxa à mão — a partir daí a exigência é dele.
+   */
+  useEffect(() => {
+    if (costOfCapital == null || manualRate.current) return
+    const equity = String(Number((costOfCapital.costOfEquity * 100).toFixed(2)))
+    const firm =
+      costOfCapital.wacc == null ? '' : String(Number((costOfCapital.wacc.wacc * 100).toFixed(2)))
+    setForm((current) => {
+      if (current.discountRate === equity && current.wacc === firm) return current
+      return { ...current, discountRate: equity, wacc: firm }
+    })
+  }, [costOfCapital])
+
+  /** Beta do setor no campo, enquanto o usuário não digitar o seu. */
+  useEffect(() => {
+    if (costOfCapital == null || manualBeta.current) return
+    const beta = String(Number(costOfCapital.beta.beta.toFixed(2)))
+    setForm((current) => (current.beta === beta ? current : { ...current, beta }))
+  }, [costOfCapital])
+
   const clear = useCallback(() => {
     manualGrowth.current.clear()
     manualDividend.current = false
+    manualRate.current = false
+    manualBeta.current = false
     setSelected(null)
     setForm(EMPTY_FORM)
     setError(null)
@@ -515,6 +693,8 @@ export function usePriceCeiling(): UsePriceCeilingResult {
   const reset = useCallback(() => {
     manualGrowth.current.clear()
     manualDividend.current = false
+    manualRate.current = false
+    manualBeta.current = false
     setSavedAt(null)
     setSaveError(null)
     if (selected) {
@@ -599,6 +779,8 @@ export function usePriceCeiling(): UsePriceCeilingResult {
     results,
     searching,
     selected,
+    costOfCapital,
+    rateFromCapm: !manualRate.current,
     form,
     setField,
     dividendBase,

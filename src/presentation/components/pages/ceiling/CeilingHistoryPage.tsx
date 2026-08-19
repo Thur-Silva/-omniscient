@@ -85,6 +85,12 @@ function summaryChips(breakdown: CeilingBreakdown): string[] {
         `g∞ ${percent(breakdown.dcf.perpetualGrowthRate)}`,
         `k ${percent(breakdown.dcf.discountRate)}`,
       ]
+    case 'fcff-wacc':
+      return [
+        `g ${percent(breakdown.fcff.growthRate)}`,
+        `WACC ${percent(breakdown.fcff.discountRate)}`,
+        `ROIC ${percent(breakdown.fcff.returnOnInvestedCapital)}`,
+      ]
     case 'ddm-gordon':
       return [
         `g ${percent(breakdown.ddm.growthRate)}`,

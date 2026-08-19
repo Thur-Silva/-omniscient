@@ -7,7 +7,7 @@ import { PostgresSnapshotRepository } from '../infra/db/snapshot-repository'
 import { RankStocks } from '../application/rank-stocks'
 import type { CeilingValuation } from '../../src/domain/valuation/ceiling-valuation'
 import { CEILING_METHOD_IDS } from '../../src/domain/valuation/methods'
-import type { RankingMode } from '../../src/domain/stock/ranking'
+import type { RankingMode, RateMode } from '../../src/domain/stock/ranking'
 import {
   buildSourceKey,
   buildUpstreamUrl,
@@ -275,11 +275,15 @@ async function handleStockRanking(
       ? (rawMode as RankingMode)
       : 'setor'
 
+  // De onde sai a taxa: CAPM por ativo (padrão) ou a taxa fixa da tela.
+  const rateMode: RateMode = parsed.searchParams.get('r') === 'fixo' ? 'fixo' : 'capm'
+
   try {
     const served = await new RankStocks(services()?.cache ?? null, env).execute({
       discountRate,
       mode,
       requiredYield,
+      rateMode,
     })
     sendJson(res, 200, served.ranking, {
       'X-Cache': served.origin === 'upstream' ? 'miss' : served.origin === 'cache' ? 'hit' : 'stale',

@@ -1,10 +1,14 @@
 import {
   normalizeDiscountRate,
   normalizeRequiredYield,
+  normalizeRiskFreeRate,
   rankStocks,
   type RankingMode,
+  type RateMode,
   type StockRanking,
 } from '../../src/domain/stock/ranking'
+import { FALLBACK_RISK_FREE_RATE } from '../../src/domain/valuation/cost-of-capital'
+import { parseSelic, SELIC_PATH, SELIC_QUERY } from '../../src/infra/bcb/selic'
 import { BAZIN_REQUIRED_YIELD } from '../../src/domain/valuation/models/bazin'
 import type { StockFundamentals } from '../../src/domain/stock/fundamentals'
 import {
@@ -40,18 +44,32 @@ export interface ServedRanking {
  * trocar a chave, um snapshot de até 10 minutos antes continuaria sendo servido
  * com a régua antiga.
  */
-const RANKING_VERSION = 3
+const RANKING_VERSION = 4
 
 export interface RankingRequest {
   discountRate: number
   mode: RankingMode
   requiredYield: number
+  rateMode: RateMode
+  /** Taxa livre de risco que alimentou o CAPM, como fração. */
+  riskFreeRate: number
 }
 
+/**
+ * A chave carrega o que muda o resultado, e a taxa é parte disso.
+ *
+ * No modo CAPM o `k` da tela não entra — não existe um k só —, e o que entra é a
+ * taxa livre de risco: quando o Copom mexe na Selic, o custo de capital de toda a
+ * bolsa muda, e o ranking guardado precisa ser outro registro. No modo fixo é o
+ * contrário: `k` manda e a Selic é irrelevante.
+ */
 function rankingKey(request: RankingRequest): string {
-  const k = (request.discountRate * 100).toFixed(1)
   const dy = (request.requiredYield * 100).toFixed(1)
-  return `ranking:acoes?k=${k}&m=${request.mode}&dy=${dy}&v=${RANKING_VERSION}`
+  const rate =
+    request.rateMode === 'capm'
+      ? `r=capm&rf=${(request.riskFreeRate * 100).toFixed(1)}`
+      : `r=fixo&k=${(request.discountRate * 100).toFixed(1)}`
+  return `ranking:acoes?${rate}&m=${request.mode}&dy=${dy}&v=${RANKING_VERSION}`
 }
 
 function toSearch(query: Record<string, string | number>): string {
@@ -87,16 +105,27 @@ export class RankStocks {
     discountRate: number
     mode?: RankingMode
     requiredYield?: number
+    rateMode?: RateMode
   }): Promise<ServedRanking> {
+    const rateMode: RateMode = requested.rateMode ?? 'capm'
+    // A Selic só é buscada quando manda no resultado. No modo fixo ela não entra
+    // na conta, e ir ao Banco Central para descartar o número seria trabalho vão.
+    const riskFreeRate =
+      rateMode === 'capm' ? await this.loadRiskFreeRate() : FALLBACK_RISK_FREE_RATE
+
     const request: RankingRequest = {
       discountRate: normalizeDiscountRate(requested.discountRate),
       mode: requested.mode ?? 'setor',
       requiredYield: normalizeRequiredYield(requested.requiredYield ?? BAZIN_REQUIRED_YIELD),
+      rateMode,
+      riskFreeRate: normalizeRiskFreeRate(riskFreeRate),
     }
     const options = {
       discountRate: request.discountRate,
       mode: request.mode,
       requiredYield: request.requiredYield,
+      rateMode: request.rateMode,
+      riskFreeRate: request.riskFreeRate,
     }
 
     // Sem banco a aplicação não para: calcula na hora, sem guardar.
@@ -119,6 +148,37 @@ export class RankStocks {
       origin: served.origin,
       capturedAt: served.capturedAt,
       staleReason: served.staleReason,
+    }
+  }
+
+  /**
+   * Taxa livre de risco pelo cache, com a mesma chave que o browser gera ao chamar
+   * `/api/bcb/...`. Fonte fora do ar não derruba o ranking: cai no número de
+   * reserva, que é o mesmo que a calculadora usa nessa situação.
+   */
+  private async loadRiskFreeRate(): Promise<number> {
+    if (this.cache == null) return FALLBACK_RISK_FREE_RATE
+    try {
+      const upstream = upstreamByName('bcb')
+      const search = toSearch(SELIC_QUERY)
+      const key = buildSourceKey(upstream, `${upstream.prefix}${SELIC_PATH}`, search)
+      const served = await this.cache.fetch(key, async () => {
+        const response = await fetch(`${upstream.origin}${SELIC_PATH}${search}`, {
+          headers: upstream.headers(this.env),
+          signal: AbortSignal.timeout(upstream.timeoutMs),
+        })
+        const text = await response.text()
+        let payload: unknown = text
+        try {
+          payload = JSON.parse(text)
+        } catch {
+          // Corpo não-JSON só interessa como diagnóstico de erro.
+        }
+        return { status: response.status, payload, ok: response.ok }
+      })
+      return parseSelic(served.payload)?.rate ?? FALLBACK_RISK_FREE_RATE
+    } catch {
+      return FALLBACK_RISK_FREE_RATE
     }
   }
 

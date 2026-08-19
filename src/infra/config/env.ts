@@ -15,6 +15,8 @@ export interface AppConfig {
   clerkPublishableKey: string
   /** Nosso servidor, que serve rankings ja calculados. */
   rankingBaseUrl: string
+  /** Proxy do Banco Central, de onde sai a taxa livre de risco. */
+  centralBankBaseUrl: string
 }
 
 export const appConfig: AppConfig = {
@@ -23,4 +25,5 @@ export const appConfig: AppConfig = {
   fundamentalsBaseUrl: import.meta.env.VITE_FUNDAMENTALS_BASE_URL ?? '/api/fundamentos',
   clerkPublishableKey: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? '',
   rankingBaseUrl: import.meta.env.VITE_RANKING_BASE_URL ?? '/api/ranking',
+  centralBankBaseUrl: import.meta.env.VITE_BCB_BASE_URL ?? '/api/bcb',
 }

@@ -64,6 +64,16 @@ export interface StatusInvestStockItem {
   segmentname: string | null
   /** CAGR de receita em 5 anos, em pontos percentuais. */
   receitas_cagr5: number | null
+  /** Preço sobre EBIT por ação. Reconstrói o EBIT a partir da capitalização. */
+  p_ebit: number | null
+  /** Valor da firma sobre EBIT. Com o EBIT, dá o valor da firma. */
+  ev_ebit: number | null
+  /** Dívida líquida sobre patrimônio líquido, como razão: 0.65. */
+  dividaliquidapatrimonioliquido: number | null
+  /** Dívida líquida sobre EBIT, como razão: 1.68. */
+  dividaliquidaebit: number | null
+  /** Retorno sobre capital investido em pontos percentuais: 11.11 é 11,11%. */
+  roic: number | null
 }
 
 export interface StatusInvestStockResponse {

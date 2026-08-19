@@ -4,6 +4,7 @@ import type { GrahamNumberBreakdown } from './models/graham-number'
 import type { ResidualIncomeBreakdown } from './models/residual-income'
 import type { TwoPhaseDcfBreakdown } from './models/two-phase-dcf'
 import type { TwoPhaseDdmBreakdown } from './models/two-phase-ddm'
+import type { TwoPhaseFcffBreakdown } from './models/two-phase-fcff'
 
 /**
  * Memória de cálculo de qualquer método, discriminada pelo método.
@@ -15,6 +16,7 @@ import type { TwoPhaseDdmBreakdown } from './models/two-phase-ddm'
  */
 export type CeilingBreakdown =
   | { method: 'fcd-2-fases'; dcf: TwoPhaseDcfBreakdown }
+  | { method: 'fcff-wacc'; fcff: TwoPhaseFcffBreakdown }
   | { method: 'ddm-gordon'; ddm: TwoPhaseDdmBreakdown }
   | { method: 'bazin'; bazin: BazinBreakdown }
   | { method: 'renda-residual'; residual: ResidualIncomeBreakdown }
@@ -40,6 +42,22 @@ export interface CeilingSavedAssumptions {
   requiredYield?: number
   earningsPerShare?: number
   bookValuePerShare?: number
+  /** Premissas do fluxo da firma: EBIT, imposto, ROIC, dívida líquida e WACC. */
+  ebit?: number
+  taxRate?: number
+  returnOnInvestedCapital?: number
+  revenueGrowth?: number
+  netDebt?: number
+  wacc?: number
+  /**
+   * Montagem do custo de capital, quando a taxa veio do CAPM em vez de ser
+   * digitada. Sem isto o registro guardaria "k = 19,3%" sem dizer de onde saiu, e
+   * o cálculo não seria reproduzível seis meses depois com outra Selic.
+   */
+  riskFreeRate?: number
+  beta?: number
+  extraPremium?: number
+  debtSpread?: number
 }
 
 /** Método usado no cálculo salvo, para o histórico não confundir réguas. */

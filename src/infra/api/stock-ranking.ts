@@ -1,4 +1,4 @@
-import type { RankingMode, StockRanking } from '../../domain/stock/ranking'
+import type { RankingMode, RateMode, StockRanking } from '../../domain/stock/ranking'
 import type { HttpClient } from '../http/client'
 
 /**
@@ -16,16 +16,24 @@ export class StockRankingApi {
   }
 
   async fetch(
-    request: { discountRate: number; mode: RankingMode; requiredYield: number },
+    request: {
+      discountRate: number
+      mode: RankingMode
+      requiredYield: number
+      rateMode: RateMode
+    },
     signal?: AbortSignal,
   ): Promise<StockRanking> {
     return this.http.get<StockRanking>('/acoes', {
       // Em pontos percentuais, arredondado: o servidor normaliza de novo, e a
-      // chave de cache precisa ser estável entre chamadas iguais.
+      // chave de cache precisa ser estável entre chamadas iguais. A taxa livre de
+      // risco não vai daqui — quem a lê do Banco Central é o servidor, que já tem
+      // o cache; mandá-la do browser deixaria a chave à mercê do cliente.
       query: {
         k: Number((request.discountRate * 100).toFixed(1)),
         m: request.mode,
         dy: Number((request.requiredYield * 100).toFixed(1)),
+        r: request.rateMode,
       },
       signal,
     })

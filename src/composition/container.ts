@@ -7,6 +7,7 @@ import { CeilingValuationApi } from '../infra/api/ceiling-valuation'
 import { StockRankingApi } from '../infra/api/stock-ranking'
 import { StatusInvestStockProvider } from '../infra/statusinvest/stock-provider'
 import { StatusInvestDividendHistoryProvider } from '../infra/statusinvest/dividend-history-provider'
+import { BcbRiskFreeRateProvider } from '../infra/bcb/risk-free-provider'
 import type { QuoteProvider } from '../domain/asset/quote-provider'
 import type { AssetUniverseProvider } from '../domain/asset/universe'
 import type { PositionRepository } from '../domain/portfolio/repository'
@@ -53,9 +54,18 @@ export const findFiiOpportunities = new FindFiiOpportunities(
 // Ações saem do mesmo proxy, em outra categoria da busca avançada. O histórico de
 // proventos vem do mesmo host, mas custa uma requisição por ticker: alimenta a
 // calculadora de um ativo (média de 5 anos do Bazin), nunca o ranking.
+// A taxa livre de risco vem do Banco Central pelo mesmo proxy: série pública, sem
+// chave, guardada por 10 minutos como as outras — a Selic muda por decisão do
+// Copom, não por minuto.
+const centralBankHttp = new HttpClient({
+  baseUrl: appConfig.centralBankBaseUrl,
+  timeoutMs: 15_000,
+})
+
 export const estimatePriceCeiling = new EstimatePriceCeiling(
   new StatusInvestStockProvider(fundamentalsHttp),
   new StatusInvestDividendHistoryProvider(fundamentalsHttp),
+  new BcbRiskFreeRateProvider(centralBankHttp),
 )
 
 // O ranking vem do nosso servidor, já calculado e guardado no banco. Timeout
